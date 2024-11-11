@@ -1,78 +1,101 @@
 import cv2 as cv
 import numpy as np
 import time
-
+import threading
 
 class CameraVision:
     def __init__(self):
+        # initialize OpenCV
         self.cap = cv.VideoCapture(0)
         self.cap.set(cv.CAP_PROP_FPS, 30)
-        cv.namedWindow('frame')
+        ret, frame = self.cap.read()
+        if not ret:
+            print("Failed to grab frame")
+            exit()
+        self.frame_height, self.frame_width = frame.shape[:2]
 
         self.current_position_index = 0
+        self.ball_position = None
+        self.platform_center = None
 
         # Ball color range (HSV)
         self.ball_colors = {
             "pingpong": [[15, 100, 100], [25, 255, 255]],
             "bearing": [[0, 0, 0], [179, 255, 50]],
-            "golf": [[25, 50, 50], [35, 255, 255]],
+            "golf": [[2, 2, 140], [177, 40, 255]],
         }
+        self.ball_type = "pingpong"  # Default ball type
+        self.ball_lower = np.array(self.ball_colors[self.ball_type][0])
+        self.ball_upper = np.array(self.ball_colors[self.ball_type][1])
 
-        # program types - offsets from center
+        # Program positions - offsets from center
         self.program_positions = {
             'center': [(0, 0)],
             'square': [(50, 50), (50, -50), (-50, -50), (-50, 50)],
         }
+        self.program_type = 'center'
+        self.positions = self.program_positions[self.program_type]
 
         # Platform color range (HSV)
-        self.platform_color = [[110, 150, 91], [116, 250, 200]]
+        self.platform_color = [[109, 90, 22], [131, 230, 100]]
 
-        # Initialize variables to store user selections
-        self.ball_type = None
-        self.positions = None
+        # Flags for contour visibility
+        self.show_platform_contour = True
+        self.show_ball_contour = True
 
-        self.platform_center = (0, 0)
-        self.last_platform_check = time.time()
+        # Variables to store contours
+        self.platform_contour = None
+        self.ball_contour = None
 
-        # Get user input for ball type and program number
-        self.get_user_input()
+        # Flag to control the detection
+        self.detecting = False
 
-    def get_user_input(self):
-        # Ask the user for the ball type
-        print("Available ball types:")
-        for key in self.ball_colors.keys():
-            print(f"- {key}")
-        while True:
-            ball_type = input(
-                "Enter the ball type (default: pingpong): ").strip().lower()
-            if not ball_type:
-                self.ball_type = "pingpong"
-                print(f"Default ball type selected: {self.ball_type}")
+        # Lock for thread synchronization
+        self.lock = threading.Lock()
+
+        # Start frame capturing thread
+        self.capturing = True
+        threading.Thread(target=self.capture_frames, daemon=True).start()
+
+    def capture_frames(self):
+        while self.capturing:
+            ret, frame = self.cap.read()
+            if not ret:
+                print("Failed to grab frame")
                 break
-            elif ball_type in self.ball_colors:
+
+            frame = cv.resize(frame, (self.frame_width, self.frame_height))
+            with self.lock:
+                self.frame = frame.copy()
+            time.sleep(0.015)
+
+    def set_ball_type(self, ball_type):
+        with self.lock:
+            if ball_type in self.ball_colors:
                 self.ball_type = ball_type
-                print(f"Selected ball type: {self.ball_type}")
-                break
+                self.ball_lower = np.array(self.ball_colors[self.ball_type][0])
+                self.ball_upper = np.array(self.ball_colors[self.ball_type][1])
+                print(f"Ball type set to: {self.ball_type}")
             else:
-                print("Invalid ball type.")
+                print(f"Ball type '{ball_type}' not recognized. Using default.")
 
-        # Ask the user for the program number
-        print("\nAvailable programs:")
-        for key in self.program_positions.keys():
-            print(f"- {key}")
-        while True:
-            program_type = input(
-                "Enter the program number (default: center): ").strip().lower()
-            if not program_type:
-                self.positions = self.program_positions["center"]
-                print(f"Default program selected: center")
-                break
-            elif program_type in self.program_positions:
+    def set_program(self, program_type):
+        with self.lock:
+            if program_type in self.program_positions:
+                self.program_type = program_type
                 self.positions = self.program_positions[program_type]
-                print(f"Program: {program_type}")
-                break
+                self.current_position_index = 0
+                print(f"Program set to: {program_type}")
             else:
-                print("Invalid program type.")
+                print(f"Program '{program_type}' not recognized. Using default.")
+
+    def set_show_platform_contour(self, show):
+        with self.lock:
+            self.show_platform_contour = show
+
+    def set_show_ball_contour(self, show):
+        with self.lock:
+            self.show_ball_contour = show
 
     def detect_platform_center(self, platform_contour):
         M = cv.moments(platform_contour)
@@ -83,97 +106,142 @@ class CameraVision:
             cx, cy = 0, 0
         return (cx, cy)
 
-    def detect_platform_and_track_ball(self):
-        while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                print("Failed to grab frame")
-                break
+    def update_platform_center(self):
+        with self.lock:
+            if hasattr(self, 'frame'):
+                frame = self.frame.copy()
+            else:
+                print("No frame available to detect platform.")
+                return
 
-            frame = cv.resize(frame, (680, 480))
-            hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
 
-            # Detect the platform
-            platform_lower = np.array(self.platform_color[0])
-            platform_upper = np.array(self.platform_color[1])
-            platform_mask = cv.inRange(hsv, platform_lower, platform_upper)
-            platform_contours, _ = cv.findContours(
-                platform_mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        # Detect the platform
+        platform_lower = np.array(self.platform_color[0])
+        platform_upper = np.array(self.platform_color[1])
+        platform_mask = cv.inRange(hsv, platform_lower, platform_upper)
+        platform_contours, _ = cv.findContours(
+            platform_mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
+        with self.lock:
             if platform_contours:
                 largest_platform = max(platform_contours, key=cv.contourArea)
-                # Blue outline
-                cv.drawContours(frame, [largest_platform], -1, (255, 0, 0), 2)
-                x, y, w, h = cv.boundingRect(largest_platform)
-                cv.putText(frame, "Platform Detected", (x, y - 10),
-                           cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                self.platform_contour = largest_platform
 
-                # Calculate the centroid of the platform
-                if self.platform_center == (0, 0) or time.time() - self.last_platform_check > 10:
-                    self.last_platform_check = time.time()
-                    self.platform_center = self.detect_platform_center(
-                        largest_platform)
-                cx, cy = self.platform_center
-                # Green dot at the centroid
-                cv.circle(frame, (cx, cy), 5, (0, 255, 0), -1)
-                # Display the coordinates of the centroid
-                cv.putText(frame, f"Center: ({cx}, {cy})", (cx + 10, cy),
-                           cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
+                self.platform_center = self.detect_platform_center(largest_platform)
+                print(f"Platform center updated: {self.platform_center}")
             else:
-                cv.putText(frame, "Platform Not Detected", (10, 30),
-                           cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                self.platform_contour = None
+                self.platform_center = None
+                print("Platform not detected.")
 
-            # Detect the ball based on the selected ball type
-            ball_lower = np.array(self.ball_colors[self.ball_type][0])
-            ball_upper = np.array(self.ball_colors[self.ball_type][1])
-            ball_mask = cv.inRange(hsv, ball_lower, ball_upper)
-            ball_contours, _ = cv.findContours(
-                ball_mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    def start_detection(self):
+        if not self.detecting:
+            self.detecting = True
+            threading.Thread(target=self.detect_platform_and_track_ball, daemon=True).start()
+            print("Started detection.")
 
-            if ball_contours:
-                largest_ball = max(ball_contours, key=cv.contourArea)
-                ((x_ball, y_ball), radius) = cv.minEnclosingCircle(largest_ball)
-                if radius > 10:
-                    cv.circle(frame, (int(x_ball), int(y_ball)), int(
-                        radius), (0, 165, 255), 2)  # Orange circle
-                    cv.circle(frame, (int(x_ball), int(y_ball)),
-                              2, (0, 0, 255), -1)  # Red center dot
-                    print(
-                        f"Ball detected at position: ({int(x_ball)}, {int(y_ball)})")
+    def stop_detection(self):
+        self.detecting = False
+        print("Stopped detection.")
 
-                    # Track the ball's position
-                    x_target, y_target = self.positions[self.current_position_index]
-                    cv.circle(frame, (int(x_target), int(y_target)),
-                              5, (255, 0, 0), -1)  # Blue dot
+    def detect_platform_and_track_ball(self):
+        while self.detecting:
+            with self.lock:
+                if hasattr(self, 'frame'):
+                    frame = self.frame.copy()
+                    platform_contour = self.platform_contour.copy() if self.platform_contour is not None else None
+                else:
+                    continue
+
+            hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+            with self.lock:
+                if platform_contour is not None:
+                    platform_mask = np.zeros_like(frame[:, :, 0])  # Single channel mask
+                    cv.drawContours(platform_mask, [platform_contour], -1, 255, thickness=cv.FILLED)
+
+                    # Detect the ball based on the selected ball type
+                    ball_mask = cv.inRange(hsv, self.ball_lower, self.ball_upper)
+
+                    # Apply the platform mask to the ball mask
+                    # This ensures that the we are only looking for the ball within the platform
+                    masked_ball = cv.bitwise_and(ball_mask, ball_mask, mask=platform_mask)
+
+                    ball_contours, _ = cv.findContours(
+                        masked_ball, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+                    if ball_contours:
+                        largest_ball = max(ball_contours, key=cv.contourArea)
+                        self.ball_contour = largest_ball
+
+                        ((x_ball, y_ball), radius) = cv.minEnclosingCircle(largest_ball)
+                        if radius > 10:
+                            self.ball_position = (int(x_ball), int(y_ball))
+                            print(f"Ball detected at position: {self.ball_position}")
+
+                            if self.platform_center:
+                                x_inc, y_inc = self.positions[self.current_position_index]
+                                x_target = self.platform_center[0] + x_inc
+                                y_target = self.platform_center[1] + y_inc
+
+                                if abs(x_ball - x_target) <= 5 and abs(y_ball - y_target) <= 5:
+                                    print(f"Ball reached position ({int(x_target)}, {int(y_target)})")
+                                    self.current_position_index = (
+                                        self.current_position_index + 1) % len(self.positions)
+                        else:
+                            self.ball_position = None
+                            self.ball_contour = None
+                    else:
+                        self.ball_position = None
+                        self.ball_contour = None
+                else:
+                    print("Platform contour not available. Cannot detect ball within platform.")
+                    self.ball_position = None
+                    self.ball_contour = None
+
+            time.sleep(0.03)
+
+    def get_frame(self):
+        with self.lock:
+            if hasattr(self, 'frame'):
+                frame = self.frame.copy()
+
+                # Draw platform contour
+                if self.show_platform_contour and self.platform_contour is not None:
+                    cv.drawContours(frame, [self.platform_contour], -1, (255, 0, 0), 2)
+
+                # Draw platform center
+                if self.platform_center:
+                    cv.circle(frame, self.platform_center, 5, (0, 255, 0), -1)
+                    cv.putText(frame, f"Center: {self.platform_center}", (self.platform_center[0] + 10, self.platform_center[1]),
+                               cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+                # Draw ball contour
+                if self.show_ball_contour and self.ball_contour is not None:
+                    cv.drawContours(frame, [self.ball_contour], -1, (0, 165, 255), 2)
+
+                # Draw ball position
+                if self.ball_position:
+                    cv.circle(frame, self.ball_position, 5, (0, 0, 255), -1)
+                    cv.putText(frame, f"Ball: {self.ball_position}", (self.ball_position[0] + 10, self.ball_position[1]),
+                               cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+                # Draw target position
+                if self.platform_center and self.positions:
+                    x_inc, y_inc = self.positions[self.current_position_index]
+                    x_target = self.platform_center[0] + x_inc
+                    y_target = self.platform_center[1] + y_inc
+                    cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)
                     cv.putText(frame, f"Target: ({int(x_target)}, {int(y_target)})", (10, 30),
                                cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
-                    if abs(x_ball - x_target) <= 5 and abs(y_ball - y_target) <= 5:
-                        print(
-                            f"Ball reached position ({int(x_target)}, {int(y_target)})")
-                        self.current_position_index = (
-                            self.current_position_index + 1) % len(self.positions)
-
-                else:
-                    cv.putText(frame, "Ball not detected", (10, 30),
-                               cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                return frame
             else:
-                cv.putText(frame, "Ball not detected", (10, 30),
-                           cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                return None
 
-            # Display the resulting frame
-            cv.imshow('frame', frame)
-
-            # Break the loop when 'q' is pressed
-            if cv.waitKey(1) & 0xFF == ord('q'):
-                break
-
+    def release(self):
+        self.detecting = False
+        self.capturing = False
         self.cap.release()
-        cv.destroyAllWindows()
-
-
-# Instantiate the class and start the program
-if __name__ == "__main__":
-    tracker = CameraVision()
-    tracker.detect_platform_and_track_ball()
+        print("Camera released.")
