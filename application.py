@@ -2,9 +2,11 @@
 
 import cv2 as cv
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 from camera_vision import CameraVision
+import serial
+import time
 
 class CameraVisionGUI:
     def __init__(self, root):
@@ -14,6 +16,19 @@ class CameraVisionGUI:
         self.cv = CameraVision()
         self.create_widgets()
         self.update_frame()
+
+        self.serial_port = None
+        self.initialize_serial()
+
+    def initialize_serial(self):
+        try:
+            # Replace 'COM3' with the correct port or use a method to find the port dynamically
+            self.serial_port = serial.Serial(port='COM3', baudrate=9600, timeout=1)
+            time.sleep(2)  # Wait for the serial connection to initialize
+            print("Serial connection established.")
+        except serial.SerialException as e:
+            messagebox.showerror("Serial Connection Error", f"Could not open serial port: {e}")
+            self.serial_port = None
 
     def create_widgets(self):
         # 1 ROW x 2 COL
@@ -73,6 +88,10 @@ class CameraVisionGUI:
         self.estop_button = ttk.Button(button_frame, text="Stop Detection", command=self.stop_detect_platform)
         self.estop_button.pack(fill="x", pady=2)
 
+        # Homing Button
+        self.homing_button = ttk.Button(button_frame, text="Home All Servos", command=self.home_all_servos)
+        self.homing_button.pack(fill="x", pady=2)
+
         # Servo Control
         self.servo_frame = tk.LabelFrame(self.control_panel, text="Servo Controls", padx=10, pady=10)
         self.servo_frame.pack(fill="x", pady=10)
@@ -100,8 +119,30 @@ class CameraVisionGUI:
             down_button.grid(row=1, column=1, padx=5, pady=2)
 
     def move_servo(self, servo_number, direction):
-        # NEED TO IMPLEMENT
-        print(f"Moving Servo {servo_number} {direction}")
+        if self.serial_port and self.serial_port.is_open:
+            command = f"{servo_number}{'+' if direction == 'up' else '-'}"
+            print(f"Sending command: {command}")
+            try:
+                self.serial_port.write(command.encode())
+                response = self.serial_port.readline().decode().strip()
+                print(f"Arduino response: {response}")
+            except serial.SerialException as e:
+                messagebox.showerror("Serial Communication Error", f"Error sending command: {e}")
+        else:
+            messagebox.showwarning("Serial Port Not Connected", "Serial port is not connected.")
+
+    def home_all_servos(self):
+        if self.serial_port and self.serial_port.is_open:
+            command = "h+"
+            print("Sending homing command")
+            try:
+                self.serial_port.write(command.encode())
+                response = self.serial_port.readline().decode().strip()
+                print(f"Arduino response: {response}")
+            except serial.SerialException as e:
+                messagebox.showerror("Serial Communication Error", f"Error sending homing command: {e}")
+        else:
+            messagebox.showwarning("Serial Port Not Connected", "Serial port is not connected.")
 
     def update_ball_type(self):
         selected_ball_type = self.ball_type_var.get()
@@ -157,8 +198,10 @@ class CameraVisionGUI:
         self.root.after(15, self.update_frame)
 
     def on_closing(self):
-        # Release resources and close the window
         self.cv.release()
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
+            print("Serial port closed.")
         self.root.destroy()
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@ import numpy as np
 import time
 import threading
 
+PLATFORM_COLOUR = [[113, 80, 170], [125, 170, 250]]
+
 class CameraVision:
     def __init__(self):
         # initialize OpenCV
@@ -22,7 +24,7 @@ class CameraVision:
         self.ball_colors = {
             "pingpong": [[15, 100, 100], [25, 255, 255]],
             "bearing": [[0, 0, 0], [179, 255, 50]],
-            "golf": [[2, 2, 140], [177, 40, 255]],
+            "golf": [[2, 2, 60], [120, 230, 250]],
         }
         self.ball_type = "pingpong"  # Default ball type
         self.ball_lower = np.array(self.ball_colors[self.ball_type][0])
@@ -37,7 +39,7 @@ class CameraVision:
         self.positions = self.program_positions[self.program_type]
 
         # Platform color range (HSV)
-        self.platform_color = [[109, 90, 22], [131, 230, 100]]
+        self.platform_color = PLATFORM_COLOUR
 
         # Flags for contour visibility
         self.show_platform_contour = True
@@ -178,7 +180,7 @@ class CameraVision:
                         ((x_ball, y_ball), radius) = cv.minEnclosingCircle(largest_ball)
                         if radius > 10:
                             self.ball_position = (int(x_ball), int(y_ball))
-                            print(f"Ball detected at position: {self.ball_position}")
+                            # print(f"Ball detected at position: {self.ball_position}")
 
                             if self.platform_center:
                                 x_inc, y_inc = self.positions[self.current_position_index]
