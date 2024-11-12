@@ -1,14 +1,12 @@
-# camera_vision_gui.py
-
 import cv2 as cv
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 from camera_vision import CameraVision
-import serial
 import time
+from smbus2 import SMBus
 
-class CameraVisionGUI:
+class CameraVisionGUI:    
     def __init__(self, root):
         self.root = root
         self.root.title("Camera Vision GUI")
@@ -17,18 +15,17 @@ class CameraVisionGUI:
         self.create_widgets()
         self.update_frame()
 
-        self.serial_port = None
-        self.initialize_serial()
+        self.bus = None
+        self.arduino_addr = 0x8
+        self.initialize_i2c()
 
-    def initialize_serial(self):
+    def initialize_i2c(self):
         try:
-            # Replace 'COM3' with the correct port or use a method to find the port dynamically
-            self.serial_port = serial.Serial(port='COM3', baudrate=9600, timeout=1)
-            time.sleep(2)  # Wait for the serial connection to initialize
-            print("Serial connection established.")
-        except serial.SerialException as e:
-            messagebox.showerror("Serial Connection Error", f"Could not open serial port: {e}")
-            self.serial_port = None
+            self.bus = SMBus(1)  # Use /dev/i2c-1
+            print("I2C bus initialized.")
+        except Exception as e:
+            messagebox.showerror("I2C Communication Error", f"Could not initialize I2C bus: {e}")
+            self.bus = None
 
     def create_widgets(self):
         # 1 ROW x 2 COL
@@ -119,30 +116,32 @@ class CameraVisionGUI:
             down_button.grid(row=1, column=1, padx=5, pady=2)
 
     def move_servo(self, servo_number, direction):
-        if self.serial_port and self.serial_port.is_open:
-            command = f"{servo_number}{'+' if direction == 'up' else '-'}"
-            print(f"Sending command: {command}")
+        if self.bus:
             try:
-                self.serial_port.write(command.encode())
-                response = self.serial_port.readline().decode().strip()
-                print(f"Arduino response: {response}")
-            except serial.SerialException as e:
-                messagebox.showerror("Serial Communication Error", f"Error sending command: {e}")
+                servo_byte = servo_number  # 1, 2, or 3
+                direction_byte = 0x1 if direction == "up" else 0x0  # 1 for up, 0 for down
+                # Send data to Arduino
+                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte])
+                print(f"Command sent: Move Servo {servo_number} {direction}.")
+            except Exception as e:
+                messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
         else:
-            messagebox.showwarning("Serial Port Not Connected", "Serial port is not connected.")
+            messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
+
 
     def home_all_servos(self):
-        if self.serial_port and self.serial_port.is_open:
-            command = "h+"
-            print("Sending homing command")
+        if self.bus:
             try:
-                self.serial_port.write(command.encode())
-                response = self.serial_port.readline().decode().strip()
-                print(f"Arduino response: {response}")
-            except serial.SerialException as e:
-                messagebox.showerror("Serial Communication Error", f"Error sending homing command: {e}")
+                # Define homing command: servo_byte = 0x0, direction_byte = 0x0
+                servo_byte = 0x0
+                direction_byte = 0x0
+                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte])
+                print("Homing command sent.")
+            except Exception as e:
+                messagebox.showerror("I2C Communication Error", f"Error sending homing command: {e}")
         else:
-            messagebox.showwarning("Serial Port Not Connected", "Serial port is not connected.")
+            messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
+
 
     def update_ball_type(self):
         selected_ball_type = self.ball_type_var.get()
@@ -198,10 +197,11 @@ class CameraVisionGUI:
         self.root.after(15, self.update_frame)
 
     def on_closing(self):
+        # Release resources and close the window
         self.cv.release()
-        if self.serial_port and self.serial_port.is_open:
-            self.serial_port.close()
-            print("Serial port closed.")
+        if self.bus:
+            self.bus.close()
+            print("I2C bus closed.")
         self.root.destroy()
 
 if __name__ == "__main__":
