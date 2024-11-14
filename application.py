@@ -120,22 +120,23 @@ class CameraVisionGUI:
             try:
                 servo_byte = servo_number  # 1, 2, or 3
                 direction_byte = 0x1 if direction == "up" else 0x0  # 1 for up, 0 for down
-                # Send data to Arduino
-                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte])
-                print(f"Command sent: Move Servo {servo_number} {direction}.")
+                step_byte = 0xA  # 10 steps
+                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
+                print(f"Command sent: Move Servo {servo_number} {direction} by {step_byte} steps.")
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
         else:
             messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
 
-
     def home_all_servos(self):
         if self.bus:
             try:
-                # Define homing command: servo_byte = 0x0, direction_byte = 0x0
+                # home: servo_byte = 0x0
+                # direction_byte = 0x0, step_byte = 0x0 (these do not matter)
                 servo_byte = 0x0
                 direction_byte = 0x0
-                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte])
+                step_byte = 0x0
+                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
                 print("Homing command sent.")
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending homing command: {e}")
@@ -185,7 +186,6 @@ class CameraVisionGUI:
             self.video_panel.imgtk = imgtk
             self.video_panel.configure(image=imgtk)
 
-            # Update ball position in the text box
             if self.cv.ball_position:
                 self.position_text.delete('1.0', tk.END)
                 self.position_text.insert(tk.END, f"{self.cv.ball_position}")
@@ -197,7 +197,6 @@ class CameraVisionGUI:
         self.root.after(15, self.update_frame)
 
     def on_closing(self):
-        # Release resources and close the window
         self.cv.release()
         if self.bus:
             self.bus.close()

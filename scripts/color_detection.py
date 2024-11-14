@@ -1,3 +1,5 @@
+# THIS SCRIPT IS USED TO DETERMINE THE HSV VALUES OF A COLOR ON THE VIDEO
+
 import cv2 as cv
 import numpy as np
 

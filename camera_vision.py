@@ -3,7 +3,7 @@ import numpy as np
 import time
 import threading
 
-PLATFORM_COLOUR = [[113, 80, 170], [125, 170, 250]]
+PLATFORM_COLOUR = [[110, 80, 220], [120, 195, 255]]
 
 class CameraVision:
     def __init__(self):
@@ -41,21 +41,20 @@ class CameraVision:
         # Platform color range (HSV)
         self.platform_color = PLATFORM_COLOUR
 
-        # Flags for contour visibility
+        # contour visibility
         self.show_platform_contour = True
         self.show_ball_contour = True
 
-        # Variables to store contours
+        # contours
         self.platform_contour = None
         self.ball_contour = None
 
-        # Flag to control the detection
+        # flag to control the detection
         self.detecting = False
 
-        # Lock for thread synchronization
+        # thread synchronization
         self.lock = threading.Lock()
 
-        # Start frame capturing thread
         self.capturing = True
         threading.Thread(target=self.capture_frames, daemon=True).start()
 
@@ -160,14 +159,12 @@ class CameraVision:
 
             with self.lock:
                 if platform_contour is not None:
-                    platform_mask = np.zeros_like(frame[:, :, 0])  # Single channel mask
+                    platform_mask = np.zeros_like(frame[:, :, 0])
                     cv.drawContours(platform_mask, [platform_contour], -1, 255, thickness=cv.FILLED)
 
-                    # Detect the ball based on the selected ball type
                     ball_mask = cv.inRange(hsv, self.ball_lower, self.ball_upper)
 
-                    # Apply the platform mask to the ball mask
-                    # This ensures that the we are only looking for the ball within the platform
+                    # make sure we are only looking for the ball within the platform
                     masked_ball = cv.bitwise_and(ball_mask, ball_mask, mask=platform_mask)
 
                     ball_contours, _ = cv.findContours(

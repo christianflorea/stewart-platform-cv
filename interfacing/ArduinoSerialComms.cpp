@@ -1,3 +1,9 @@
+// THIS FILE IS FOR MOVING THE SERVOS USING THE SERIAL MONITOR
+
+// TYPE 'h' TO HOME ALL SERVOS SIMULTANEOUSLY
+// TYPE '{servo number}{direction (+ or -)}' TO MOVE THE SERVOS
+// EXAMPLE: '1+' TO MOVE SERVO 1 UP BY A STEP (10 DEGREES)
+
 #include <Wire.h>
 #include <Servo.h>
 
