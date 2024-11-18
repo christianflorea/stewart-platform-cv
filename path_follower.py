@@ -1,10 +1,10 @@
 import numpy as np
 import time
+import threading
 
-
-class PathFollower:
+class Controller:
     """
-    PathFollower class to generate a circular path and compute PID-controlled servo angles.
+    Controller class to follow the ball's position using PID control.
 
     Attributes:
         radius (float): Radius of the circular path in meters.
@@ -13,35 +13,21 @@ class PathFollower:
         kp (float): Proportional gain for PID controller.
         kd (float): Derivative gain for PID controller.
         ki (float): Integral gain for PID controller.
+        ball_mass (float): Mass of the ball in kg.
     """
 
-    def __init__(self, radius=0.035, num_points=100, delay=0.075, kp=1.0, kd=1.0, ki=1.0):
-        """
-        Initializes the PathFollower with given parameters.
-
-        Args:
-            radius (float): Radius of the circular path in meters.
-            num_points (int): Number of points in the path.
-            delay (float): Time delay between each point in seconds.
-            kp (float): Proportional gain for PID controller.
-            kd (float): Derivative gain for PID controller.
-            ki (float): Integral gain for PID controller.
-        """
+    def __init__(self, radius=0.035, num_points=100, delay=0.075, kp=1.0, kd=1.0, ki=1.0, ball_mass=0.04593):
         self.radius = radius
         self.num_points = num_points
         self.delay = delay
         self.kp = kp
         self.kd = kd
         self.ki = ki
+        self.ball_mass = ball_mass
 
-        # Generate circular path
-        self.theta_values = np.linspace(0, 30 * np.pi, self.num_points)  # Rotation amount
-        self.x_circle = self.radius * np.cos(self.theta_values)
-        self.y_circle = self.radius * np.sin(self.theta_values)
-
-        # Goal position
-        self.x_goal = 0.0
-        self.y_goal = 0.0
+        # Placeholder for current ball position, initialized at center
+        self.x_ball = 0.0
+        self.y_ball = 0.0
 
         # PID controller state
         self.error_x_last = 0.0
@@ -50,7 +36,6 @@ class PathFollower:
         self.integral_y = 0.0
 
         # Constants
-        self.m_ball = 0.04593  # Golf ball mass in kg
         self.g = 9.81  # Acceleration due to gravity (m/s^2)
         self.MAX_PID = 0.10206  # Maximum PID output
 
@@ -69,6 +54,25 @@ class PathFollower:
 
         self.active = False
 
+        self.lock = threading.Lock()
+
+    def set_ball_mass(self, mass):
+        """
+        Sets the mass of the ball.
+        """
+        with self.lock:
+            self.ball_mass = mass
+        print(f"Ball mass set to {self.ball_mass} kg.")
+
+    def set_ball_position(self, x, y):
+        """
+        Sets the current ball position.
+        """
+        with self.lock:
+            self.x_ball = x
+            self.y_ball = y
+        print(f"Ball position updated to ({self.x_ball}, {self.y_ball})")
+
     def run(self, callback):
         """
         Executes the path following and PID control loop.
@@ -78,29 +82,30 @@ class PathFollower:
         self.active = True
         start_time = time.perf_counter()
 
-        for index in range(self.num_points):
-            if not self.active:
-                print("Path following interrupted.")
-                break
+        while self.active:
+            with self.lock:
+                # Current position of the ball
+                x_ball = self.x_ball
+                y_ball = self.y_ball
 
-            # Current position on the path
-            x_ball = self.x_circle[index]
-            y_ball = self.y_circle[index]
+            # Goal position (platform center)
+            x_goal = 0.0
+            y_goal = 0.0
 
             # Calculate errors
-            error_x = self.x_goal - x_ball
-            error_y = self.y_goal - y_ball
+            error_x = x_goal - x_ball
+            error_y = y_goal - y_ball
 
             # Time management
             current_time = time.perf_counter()
-            if index > 0:
+            if hasattr(self, 'last_time'):
                 time_between = current_time - self.last_time
             else:
                 time_between = 0.0  # No previous time
             self.last_time = current_time
 
             # Derivative calculation
-            if index > 0 and time_between > 0:
+            if hasattr(self, 'error_x_last') and time_between > 0:
                 derivative_x = (error_x - self.error_x_last) / time_between
                 derivative_y = (error_y - self.error_y_last) / time_between
             else:
@@ -112,17 +117,20 @@ class PathFollower:
             self.integral_y += error_y * time_between
 
             # PID output
-            x_pid = (self.kp * error_x) + (self.kd * derivative_x) + (self.ki * self.integral_x)
-            y_pid = (self.kp * error_y) + (self.kd * derivative_y) + (self.ki * self.integral_y)
+            with self.lock:
+                kp = self.kp
+                kd = self.kd
+                ki = self.ki
+                ball_mass = self.ball_mass
+
+            x_pid = (kp * error_x) + (kd * derivative_x) + (ki * self.integral_x)
+            y_pid = (kp * error_y) + (kd * derivative_y) + (ki * self.integral_y)
 
             # Update last errors
             self.error_x_last = error_x
             self.error_y_last = error_y
 
             # Clamp PID outputs
-            x_pid = 0.001 if x_pid == 0 else x_pid
-            y_pid = 0.001 if y_pid == 0 else y_pid
-
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
 
@@ -131,16 +139,16 @@ class PathFollower:
             theta_rad = np.arctan2(y_pid, x_pid)
             theta_deg = np.degrees(theta_rad)
 
-            # Calculate phi
+            # Calculate phi based on dynamics (assuming some relation)
             try:
-                phi_rad = np.arcsin((2 * V) / (self.m_ball * self.g)) / 2
+                phi_rad = np.arcsin((2 * V) / (ball_mass * self.g)) / 2
                 phi_deg = np.degrees(phi_rad)
                 phi_deg = np.clip(phi_deg, -15, 15)
             except ValueError:
                 # Handle domain error if (2*V)/(m_ball*g) > 1
                 phi_deg = 15 if V > 0 else -15
 
-            # Calculate V_x and V_y
+            # Calculate velocity components
             V_x = abs(V * np.cos(np.radians(theta_deg)) / np.cos(np.radians(phi_deg)))
             V_y = abs(V * np.sin(np.radians(theta_deg)) / np.cos(np.radians(phi_deg)))
 
@@ -227,42 +235,48 @@ class PathFollower:
 
             # Link 1 Theta Calculations
             L_a1 = np.sqrt(x1**2 + y1**2 + z1**2)
-            acos_arg1 = (-L_2**2 + (x1**2 + y1**2 + z1**2) +
-                         2 * L_m * L_a1 * np.cos(np.arccos(z1 / L_a1) + 1.5708) +
-                         L_m**2) / L_1
-            if -1 <= acos_arg1 <= 1:
-                theta_1 = np.degrees((np.arccos(acos_arg1) -
-                                       2 * L_a1 * (np.arccos(z1 / L_a1) + 1.5708)) /
-                                      (2 * L_a1 + L_m - 2 * L_1))
-            else:
+            try:
+                angle_inner1 = np.arccos(z1 / L_a1) + 1.5708  # Adding 90 degrees in radians
+                acos_arg1 = (-L_2**2 + (x1**2 + y1**2 + z1**2) +
+                             2 * L_m * L_a1 * np.cos(angle_inner1) +
+                             L_m**2) / (2 * L_1)
+                if -1 <= acos_arg1 <= 1:
+                    theta_1 = np.degrees(np.arccos(acos_arg1))
+                else:
+                    theta_1 = 90  # Default or handle error
+            except:
                 theta_1 = 90  # Default or handle error
 
             theta_1 = np.clip(theta_1, 90, 179)
 
             # Link 2 Theta Calculations
             L_a2 = np.sqrt(x2**2 + y2**2 + z2**2)
-            acos_arg2 = (-L_2**2 + (x2**2 + y2**2 + z2**2) +
-                         2 * L_m * L_a2 * np.cos(np.arccos(z2 / L_a2) + 1.5708) +
-                         L_m**2) / L_1
-            if -1 <= acos_arg2 <= 1:
-                theta_2 = np.degrees((np.arccos(acos_arg2) -
-                                       2 * L_a2 * (np.arccos(z2 / L_a2) + 1.5708)) /
-                                      (2 * L_a2 + L_m - 2 * L_1))
-            else:
+            try:
+                angle_inner2 = np.arccos(z2 / L_a2) + 1.5708
+                acos_arg2 = (-L_2**2 + (x2**2 + y2**2 + z2**2) +
+                             2 * L_m * L_a2 * np.cos(angle_inner2) +
+                             L_m**2) / (2 * L_1)
+                if -1 <= acos_arg2 <= 1:
+                    theta_2 = np.degrees(np.arccos(acos_arg2))
+                else:
+                    theta_2 = 90  # Default or handle error
+            except:
                 theta_2 = 90  # Default or handle error
 
             theta_2 = np.clip(theta_2, 90, 179)
 
             # Link 3 Theta Calculations
             L_a3 = np.sqrt(x3**2 + y3**2 + z3**2)
-            acos_arg3 = (-L_2**2 + (x3**2 + y3**2 + z3**2) +
-                         2 * L_m * L_a3 * np.cos(np.arccos(z3 / L_a3) + 1.5708) +
-                         L_m**2) / L_1
-            if -1 <= acos_arg3 <= 1:
-                theta_3 = np.degrees((np.arccos(acos_arg3) -
-                                       2 * L_a3 * (np.arccos(z3 / L_a3) + 1.5708)) /
-                                      (2 * L_a3 + L_m - 2 * L_1))
-            else:
+            try:
+                angle_inner3 = np.arccos(z3 / L_a3) + 1.5708
+                acos_arg3 = (-L_2**2 + (x3**2 + y3**2 + z3**2) +
+                             2 * L_m * L_a3 * np.cos(angle_inner3) +
+                             L_m**2) / (2 * L_1)
+                if -1 <= acos_arg3 <= 1:
+                    theta_3 = np.degrees(np.arccos(acos_arg3))
+                else:
+                    theta_3 = 90  # Default or handle error
+            except:
                 theta_3 = 90  # Default or handle error
 
             theta_3 = np.clip(theta_3, 90, 179)
@@ -280,7 +294,6 @@ class PathFollower:
 
             callback(theta_1, theta_2, theta_3)
 
-            print(f"Point {index + 1}/{self.num_points}")
             print(f"V: {V:.5f} m/s")
             print(f"Theta: {theta_deg:.2f} degrees")
             print(f"Phi: {phi_deg:.2f} degrees")
@@ -292,10 +305,7 @@ class PathFollower:
             print(f"Theta_3: {theta_3:.2f} degrees")
             print("-" * 40)
 
-            # Delay before next point
             time.sleep(self.delay)
-
-        print("Path following and PID control completed.")
 
     def get_results(self):
         """

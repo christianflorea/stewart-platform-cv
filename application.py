@@ -5,7 +5,7 @@ from PIL import Image, ImageTk
 from camera_vision import CameraVision
 from smbus2 import SMBus
 import threading  # For threading
-from path_follower import PathFollower  # Import PathFollower
+from path_follower import Controller
 
 class CameraVisionGUI:    
     def __init__(self, root):
@@ -22,17 +22,24 @@ class CameraVisionGUI:
 
         self.current_servo_positions = [135, 135, 135]  # starting positions
 
-        self.path_follower = PathFollower(
+        self.ball_mass_mapping = {
+            'golf': 0.04593,
+            'baering': 0.057,
+            'pinpong': 0.624,
+        }
+
+        self.controller = Controller(
             radius=0.035, 
             num_points=100, 
             delay=0.075, 
             kp=1.0, 
             kd=1.0, 
-            ki=1.0
+            ki=1.0,
+            ball_mass=self.ball_mass_mapping['pingpong']
         )
-        self.path_follower_callback = self.send_servo_commands
-        self.path_follower_thread = threading.Thread(target=self.path_follower.run, args=(self.path_follower_callback,), daemon=True)
-        self.path_follower.active = False
+        self.controller_callback = self.send_servo_commands
+        self.controller_thread = threading.Thread(target=self.controller.run, args=(self.controller_callback,), daemon=True)
+        self.controller.active = False
 
         self.servo_lock = threading.Lock()
 
@@ -119,15 +126,15 @@ class CameraVisionGUI:
         self.position_text.pack()
         self.position_text.insert(tk.END, "No data")
 
-        # Path Follower Controls
-        path_follower_frame = tk.LabelFrame(self.control_panel, text="Path Follower Controls", padx=10, pady=10)
-        path_follower_frame.pack(fill="x", pady=10)
+        # Controller Controls
+        controller_frame = tk.LabelFrame(self.control_panel, text="Path Follower Controls", padx=10, pady=10)
+        controller_frame.pack(fill="x", pady=10)
 
-        self.start_path_button = ttk.Button(path_follower_frame, text="Start Path Following", command=self.start_path_following)
-        self.start_path_button.pack(fill="x", pady=2)
+        self.start_controller_button = ttk.Button(controller_frame, text="Start Path Following", command=self.start_controller_following)
+        self.start_controller_button.pack(fill="x", pady=2)
 
-        self.stop_path_button = ttk.Button(path_follower_frame, text="Stop Path Following", command=self.stop_path_following)
-        self.stop_path_button.pack(fill="x", pady=2)
+        self.stop_controller_button = ttk.Button(controller_frame, text="Stop Path Following", command=self.stop_controller_following)
+        self.stop_controller_button.pack(fill="x", pady=2)
 
     def create_servo_controls(self):
         for i in range(1, 4):
@@ -142,23 +149,23 @@ class CameraVisionGUI:
             down_button = ttk.Button(servo_control_frame, text="Down", command=lambda i=i: self.move_servo(i, "down"))
             down_button.grid(row=1, column=1, padx=5, pady=2)
 
-    def start_path_following(self):
-        if not self.path_follower.active:
-            self.path_follower.active = True
-            if not self.path_follower_thread.is_alive():
-                self.path_follower_thread = threading.Thread(target=self.path_follower.run, args=(self.path_follower_callback,), daemon=True)
-                self.path_follower_thread.start()
+    def start_controller_following(self):
+        if not self.controller.active:
+            self.controller.active = True
+            if not self.controller_thread.is_alive():
+                self.controller_thread = threading.Thread(target=self.controller.run, args=(self.controller_callback,), daemon=True)
+                self.controller_thread.start()
             print("Path following started.")
 
-    def stop_path_following(self):
-        if self.path_follower.active:
-            self.path_follower.active = False
+    def stop_controller_following(self):
+        if self.controller.active:
+            self.controller.active = False
             print("Path following stopped.")
 
     # Define Callback Function to Receive Servo Commands from path follower
     def send_servo_commands(self, theta_1, theta_2, theta_3):
         """
-        Receives desired servo angles from PathFollower and sends I2C commands.
+        Receives desired servo angles from Controller and sends I2C commands.
         """
         desired_angles = [theta_1, theta_2, theta_3]
         for i, desired_angle in enumerate(desired_angles, start=1):
@@ -216,6 +223,10 @@ class CameraVisionGUI:
         selected_ball_type = self.ball_type_var.get()
         self.cv.set_ball_type(selected_ball_type)
         print(f"Updated ball type to {selected_ball_type}")
+        
+        new_mass = self.ball_mass_mapping.get(selected_ball_type.lower(), 0.04593)
+        self.controller.set_ball_mass(new_mass)
+        print(f"Ball mass set to {new_mass} kg in Controller.")
 
     def update_program(self):
         selected_program = self.program_var.get()
@@ -255,8 +266,17 @@ class CameraVisionGUI:
             self.video_panel.configure(image=imgtk)
 
             if self.cv.ball_position:
+                ball_x_px, ball_y_px = self.cv.ball_position
+                platform_center_x_px, platform_center_y_px = self.cv.platform_center
+
+                # normalize coordinates to (0, 0) at platform center
+                norm_x = ball_x_px - platform_center_x_px
+                norm_y = ball_y_px - platform_center_y_px
+
+                self.controller.set_ball_position(norm_x, norm_y)
+
                 self.position_text.delete('1.0', tk.END)
-                self.position_text.insert(tk.END, f"{self.cv.ball_position}")
+                self.position_text.insert(tk.END, f"({norm_x}, {norm_y})")
             else:
                 self.position_text.delete('1.0', tk.END)
                 self.position_text.insert(tk.END, "Ball not detected")
