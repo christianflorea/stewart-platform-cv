@@ -67,15 +67,22 @@ class PathFollower:
             'theta_3': []
         }
 
-    def run(self):
+        self.active = False
+
+    def run(self, callback):
         """
         Executes the path following and PID control loop.
         """
         print("Starting path following and PID control...")
         print("------------------------------------------")
+        self.active = True
         start_time = time.perf_counter()
 
         for index in range(self.num_points):
+            if not self.active:
+                print("Path following interrupted.")
+                break
+
             # Current position on the path
             x_ball = self.x_circle[index]
             y_ball = self.y_circle[index]
@@ -271,7 +278,8 @@ class PathFollower:
             self.results['theta_2'].append(theta_2)
             self.results['theta_3'].append(theta_3)
 
-            # Display information
+            callback(theta_1, theta_2, theta_3)
+
             print(f"Point {index + 1}/{self.num_points}")
             print(f"V: {V:.5f} m/s")
             print(f"Theta: {theta_deg:.2f} degrees")

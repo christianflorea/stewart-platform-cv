@@ -3,8 +3,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 from camera_vision import CameraVision
-import time
 from smbus2 import SMBus
+import threading  # For threading
+from path_follower import PathFollower  # Import PathFollower
 
 class CameraVisionGUI:    
     def __init__(self, root):
@@ -18,6 +19,22 @@ class CameraVisionGUI:
         self.bus = None
         self.arduino_addr = 0x8
         self.initialize_i2c()
+
+        self.current_servo_positions = [135, 135, 135]  # starting positions
+
+        self.path_follower = PathFollower(
+            radius=0.035, 
+            num_points=100, 
+            delay=0.075, 
+            kp=1.0, 
+            kd=1.0, 
+            ki=1.0
+        )
+        self.path_follower_callback = self.send_servo_commands
+        self.path_follower_thread = threading.Thread(target=self.path_follower.run, args=(self.path_follower_callback,), daemon=True)
+        self.path_follower.active = False
+
+        self.servo_lock = threading.Lock()
 
     def initialize_i2c(self):
         try:
@@ -102,6 +119,16 @@ class CameraVisionGUI:
         self.position_text.pack()
         self.position_text.insert(tk.END, "No data")
 
+        # Path Follower Controls
+        path_follower_frame = tk.LabelFrame(self.control_panel, text="Path Follower Controls", padx=10, pady=10)
+        path_follower_frame.pack(fill="x", pady=10)
+
+        self.start_path_button = ttk.Button(path_follower_frame, text="Start Path Following", command=self.start_path_following)
+        self.start_path_button.pack(fill="x", pady=2)
+
+        self.stop_path_button = ttk.Button(path_follower_frame, text="Stop Path Following", command=self.stop_path_following)
+        self.stop_path_button.pack(fill="x", pady=2)
+
     def create_servo_controls(self):
         for i in range(1, 4):
             servo_control_frame = tk.Frame(self.servo_frame)
@@ -115,7 +142,47 @@ class CameraVisionGUI:
             down_button = ttk.Button(servo_control_frame, text="Down", command=lambda i=i: self.move_servo(i, "down"))
             down_button.grid(row=1, column=1, padx=5, pady=2)
 
+    def start_path_following(self):
+        if not self.path_follower.active:
+            self.path_follower.active = True
+            if not self.path_follower_thread.is_alive():
+                self.path_follower_thread = threading.Thread(target=self.path_follower.run, args=(self.path_follower_callback,), daemon=True)
+                self.path_follower_thread.start()
+            print("Path following started.")
+
+    def stop_path_following(self):
+        if self.path_follower.active:
+            self.path_follower.active = False
+            print("Path following stopped.")
+
+    # Define Callback Function to Receive Servo Commands from path follower
+    def send_servo_commands(self, theta_1, theta_2, theta_3):
+        """
+        Receives desired servo angles from PathFollower and sends I2C commands.
+        """
+        desired_angles = [theta_1, theta_2, theta_3]
+        for i, desired_angle in enumerate(desired_angles, start=1):
+            desired_angle = max(85, min(180, int(desired_angle)))
+
+            with self.servo_lock:
+                self.current_servo_positions[i-1] = desired_angle
+
+            # Send I2C command
+            if self.bus:
+                try:
+                    servo_byte = i  # 1, 2, or 3
+                    angle_byte = desired_angle
+                    self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [angle_byte])
+                    print(f"Command sent: Set Servo {i} to {desired_angle} degrees.")
+                except Exception as e:
+                    messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
+            else:
+                messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
+
     def move_servo(self, servo_number, direction):
+        """
+        Sends direction and step commands to the Arduino to move servos manually.
+        """
         if self.bus:
             try:
                 servo_byte = servo_number  # 1, 2, or 3
@@ -138,11 +205,12 @@ class CameraVisionGUI:
                 step_byte = 0x0
                 self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
                 print("Homing command sent.")
+
+                self.current_servo_positions = [135, 135, 135]
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending homing command: {e}")
         else:
             messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
-
 
     def update_ball_type(self):
         selected_ball_type = self.ball_type_var.get()
