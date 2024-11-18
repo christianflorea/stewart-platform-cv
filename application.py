@@ -5,7 +5,7 @@ from PIL import Image, ImageTk
 from camera_vision import CameraVision
 from smbus2 import SMBus
 import threading  # For threading
-from path_follower import Controller
+from controller import Controller
 
 class CameraVisionGUI:    
     def __init__(self, root):
