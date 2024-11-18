@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 from camera_vision import CameraVision
 from smbus2 import SMBus
-import threading  # For threading
+import threading
 from controller import Controller
 
 class CameraVisionGUI:    
@@ -24,6 +24,7 @@ class CameraVisionGUI:
 
         self.ball_mass_mapping = {
             'golf': 0.04593,
+            # NEED TO UPDATE THESE VALUES
             'baering': 0.057,
             'pinpong': 0.624,
         }
@@ -162,7 +163,6 @@ class CameraVisionGUI:
             self.controller.active = False
             print("Path following stopped.")
 
-    # Define Callback Function to Receive Servo Commands from path follower
     def send_servo_commands(self, theta_1, theta_2, theta_3):
         """
         Receives desired servo angles from Controller and sends I2C commands.
