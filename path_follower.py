@@ -131,6 +131,9 @@ class Controller:
             self.error_y_last = error_y
 
             # Clamp PID outputs
+            x_pid = 0.001 if x_pid == 0 else x_pid
+            y_pid = 0.001 if y_pid == 0 else y_pid
+
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
 
