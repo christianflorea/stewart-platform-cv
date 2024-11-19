@@ -6,6 +6,7 @@ from camera_vision import CameraVision
 from smbus2 import SMBus
 import threading
 from controller import Controller
+import time
 
 class CameraVisionGUI:    
     def __init__(self, root):
@@ -25,7 +26,7 @@ class CameraVisionGUI:
         self.ball_mass_mapping = {
             'golf': 0.04593,
             # NEED TO UPDATE THESE VALUES
-            'baering': 0.057,
+            'bearing': 0.057,
             'pingpong': 0.0027,
         }
 
@@ -33,12 +34,13 @@ class CameraVisionGUI:
             radius=0.035, 
             num_points=100, 
             delay=0.075, 
-            kp=1.0, 
-            kd=1.0, 
-            ki=1.0,
+            kp=0.005, 
+            kd=0.5, 
+            ki=0.0005,
+            s=0.6,
             ball_mass=self.ball_mass_mapping['pingpong']
         )
-        self.controller_callback = self.send_servo_commands_bulk
+        self.controller_callback = self.send_servo_commands
         self.controller_thread = threading.Thread(target=self.controller.run, args=(self.controller_callback,), daemon=True)
         self.controller.active = False
 
@@ -113,11 +115,15 @@ class CameraVisionGUI:
         # Homing Button
         self.homing_button = ttk.Button(button_frame, text="Home All Servos", command=self.home_all_servos)
         self.homing_button.pack(fill="x", pady=2)
+        
+        # Reset Button
+        self.reset_button = ttk.Button(button_frame, text="Reset", command=self.reset_variables)
+        self.reset_button.pack(fill="x", pady=2)
 
         # Servo Control
-        self.servo_frame = tk.LabelFrame(self.control_panel, text="Servo Controls", padx=10, pady=10)
-        self.servo_frame.pack(fill="x", pady=10)
-        self.create_servo_controls()
+#         self.servo_frame = tk.LabelFrame(self.control_panel, text="Servo Controls", padx=10, pady=10)
+#         self.servo_frame.pack(fill="x", pady=10)
+#         self.create_servo_controls()
 
         # Ball position
         position_frame = tk.LabelFrame(self.control_panel, text="Ball Position:", padx=10, pady=10)
@@ -136,6 +142,10 @@ class CameraVisionGUI:
 
         self.stop_controller_button = ttk.Button(controller_frame, text="Stop Path Following", command=self.stop_controller_following)
         self.stop_controller_button.pack(fill="x", pady=2)
+    
+    def reset_variables(self):
+        self.controller.reset()
+        self.home_all_servos()
 
     def create_servo_controls(self):
         for i in range(1, 4):
@@ -144,17 +154,11 @@ class CameraVisionGUI:
 
             tk.Label(servo_control_frame, text=f"Servo {i}").grid(row=0, column=0, columnspan=2)
 
-            up_button = ttk.Button(servo_control_frame, text="Up", command=lambda i=i: self.move_servo_up(i))
+            up_button = ttk.Button(servo_control_frame, text="Up", command=lambda i=i: self.move_servo(i, "up"))
             up_button.grid(row=1, column=0, padx=5, pady=2)
 
-            down_button = ttk.Button(servo_control_frame, text="Down", command=lambda i=i: self.move_servo_down(i))
+            down_button = ttk.Button(servo_control_frame, text="Down", command=lambda i=i: self.move_servo(i, "down"))
             down_button.grid(row=1, column=1, padx=5, pady=2)
-
-    def move_servo_up(self, servo_number):
-        self.move_servo(servo_number, "up")
-
-    def move_servo_down(self, servo_number):
-        self.move_servo(servo_number, "down")
 
     def start_controller_following(self):
         if not self.controller.active:
@@ -168,58 +172,33 @@ class CameraVisionGUI:
         if self.controller.active:
             self.controller.active = False
             print("Path following stopped.")
-    
-    def send_servo_commands_bulk(self, theta_1, theta_2, theta_3):
+
+    def send_servo_commands(self, theta_1, theta_2, theta_3):
         """
-        Sends desired servo angles for all three servos in a single I2C command.
+        Receives desired servo angles from Controller and sends I2C commands.
         """
+        start_time = time.time()
+
         desired_angles = [theta_1, theta_2, theta_3]
-        processed_angles = []
+        for i in range(3):
+            desired_angles[i] = 270 - desired_angles[i]
+            desired_angles[i] = max(90, min(180, int(desired_angles[i])))
+            with self.servo_lock:
+                self.current_servo_positions[i] = desired_angles[i]
+        
+        print(f"Sending bulk servo angles: {desired_angles}")
 
-        for theta in desired_angles:
-            # Convert theta as per original code (270 - theta)
-            processed_theta = 270 - theta
-            # Clamp the angle between 90 and 180 (adjusted from 85 to 90 for safety)
-            processed_theta = max(90, min(180, int(processed_theta)))
-            processed_angles.append(processed_theta)
+        # Send I2C command
+        if self.bus:
+            try:
+                self.bus.write_i2c_block_data(self.arduino_addr, 4, [a for a in desired_angles])
+                end_time = time.time()
+                print(f"I2C command took {end_time - start_time} seconds.")
+            except Exception as e:
+                messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
+        else:
+            messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
 
-        with self.servo_lock:
-            self.current_servo_positions = processed_angles.copy()
-
-        # Prepare the I2C message
-        try:
-            # Command identifier for bulk command
-            command_identifier = 0x10
-            # Combine command identifier and angles into a single list
-            i2c_data = [command_identifier] + processed_angles
-            # Write the data as a block
-            self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
-            print(f"Bulk Command sent: Set Servos to {processed_angles} degrees.")
-        except Exception as e:
-            messagebox.showerror("I2C Communication Error", f"Error sending bulk command: {e}")
-
-    def send_servo_commands_automated(self, servo_number, theta):
-        """
-        Sends desired servo angle for a single servo in an automated manner.
-        """
-        desired_angle = theta
-        processed_theta = 270 - desired_angle
-        processed_theta = max(85, min(180, int(processed_theta)))
-
-        with self.servo_lock:
-            self.current_servo_positions[servo_number - 1] = processed_theta
-
-        # Prepare the I2C message
-        try:
-            # Command identifier for automated single servo command
-            command_identifier = 0x01
-            # Combine command identifier, servo number, and angle
-            i2c_data = [command_identifier, servo_number, processed_theta]
-            # Write the data as a block
-            self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
-            print(f"Automated Command sent: Set Servo {servo_number} to {processed_theta} degrees.")
-        except Exception as e:
-            messagebox.showerror("I2C Communication Error", f"Error sending automated servo command: {e}")
 
     def move_servo(self, servo_number, direction):
         """
@@ -227,42 +206,36 @@ class CameraVisionGUI:
         """
         if self.bus:
             try:
-                # Command identifier for manual move command
-                command_identifier = 0x00
                 servo_byte = servo_number  # 1, 2, or 3
                 direction_byte = 0x1 if direction == "up" else 0x0  # 1 for up, 0 for down
-                step_byte = 10  # 10 steps
-                # Combine into a single list
-                i2c_data = [command_identifier, servo_byte, direction_byte, step_byte]
-                # Write the data as a block
-                self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
-                print(f"Manual Move Command sent: Move Servo {servo_number} {direction} by {step_byte} steps.")
+                step_byte = 0xA  # 10 steps
+                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
+                print(f"Command sent: Move Servo {servo_number} {direction} by {step_byte} steps.")
             except Exception as e:
-                messagebox.showerror("I2C Communication Error", f"Error sending manual move command: {e}")
+                messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
         else:
             messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
 
     def home_all_servos(self):
         if self.bus:
             try:
-                # Command identifier for homing command
-                # As per updated Arduino code, sending [0x0, 0x0, 0x0]
-                # Assuming homing command identifier is 0x00 with servo_byte=0x0
-                # Alternatively, if a specific command identifier is needed, adjust accordingly
-                command_identifier = 0x00
-                servo_byte = 0x0  # Indicates homing
-                direction_byte = 0x0  # Not used for homing
-                step_byte = 0x0  # Not used for homing
-                i2c_data = [command_identifier, servo_byte, direction_byte, step_byte]
-                self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
+                # home: servo_byte = 0x0
+                # direction_byte = 0x0, step_byte = 0x0 (these do not matter)
+                servo_byte = 0x0
+                direction_byte = 0x0
+                step_byte = 0x0
+                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
                 print("Homing command sent.")
 
-                # Optionally, reset current_servo_positions if homing sets them to known values
                 self.current_servo_positions = [135, 135, 135]
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending homing command: {e}")
         else:
             messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
+        
+        time.sleep(1)
+        self.update_platform_center()
+        self.start_detect_platform()
 
     def update_ball_type(self):
         selected_ball_type = self.ball_type_var.get()
@@ -314,9 +287,12 @@ class CameraVisionGUI:
                 ball_x_px, ball_y_px = self.cv.ball_position
                 platform_center_x_px, platform_center_y_px = self.cv.platform_center
 
-                # Normalize coordinates to (0, 0) at platform center
+                # normalize coordinates to (0, 0) at platform center
                 norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
+                
+                norm_x = norm_x * round(250/242, 3)
+                norm_y = norm_y * round(250/242, 3)
 
                 self.controller.set_ball_position(norm_x, norm_y)
 

@@ -15,8 +15,11 @@ class Controller:
         ki (float): Integral gain for PID controller.
         ball_mass (float): Mass of the ball in kg.
     """
+    def __init__(self, *args, **kwargs):
+        self._init_params = (args, kwargs)
+        self._initialize(*args, **kwargs)
 
-    def __init__(self, radius=0.035, num_points=100, delay=0.075, kp=1.0, kd=1.0, ki=1.0, ball_mass=0.04593):
+    def _initialize(self, radius=0.035, num_points=100, delay=0.05, kp=1.0, kd=1.0, ki=1.0, s=0.7, ball_mass=0.04593):
         self.radius = radius
         self.num_points = num_points
         self.delay = delay
@@ -24,6 +27,7 @@ class Controller:
         self.kd = kd
         self.ki = ki
         self.ball_mass = ball_mass
+        self.s = s
 
         # Placeholder for current ball position, initialized at center
         self.x_ball = 0.0
@@ -62,39 +66,40 @@ class Controller:
         """
         with self.lock:
             self.ball_mass = mass
-        print(f"Ball mass set to {self.ball_mass} kg.")
+#         print(f"Ball mass set to {self.ball_mass} kg.")
 
     def set_ball_position(self, x, y):
         """
         Sets the current ball position.
         """
         with self.lock:
-            self.x_ball = x
+            self.x_ball = x 
             self.y_ball = y
-        print(f"Ball position updated to ({self.x_ball}, {self.y_ball})")
+#         print(f"Ball position updated to ({self.x_ball}, {self.y_ball})")
 
     def run(self, callback):
         """
         Executes the path following and PID control loop.
         """
-        print("Starting path following and PID control...")
-        print("------------------------------------------")
+#         print("Starting path following and PID control...")
+#         print("------------------------------------------")
         self.active = True
         start_time = time.perf_counter()
 
         while self.active:
+            s_t = time.time()
             with self.lock:
                 # Current position of the ball
-                x_ball = self.x_ball
-                y_ball = self.y_ball
+                x_ball = self.x_ball / 1000
+                y_ball = self.y_ball / 1000
 
             # Goal position (platform center)
             x_goal = 0.0
             y_goal = 0.0
 
             # Calculate errors
-            error_x = x_goal - x_ball
-            error_y = y_goal - y_ball
+            error_x = x_goal + x_ball
+            error_y = y_goal + y_ball
 
             # Time management
             current_time = time.perf_counter()
@@ -134,29 +139,34 @@ class Controller:
             x_pid = 0.001 if x_pid == 0 else x_pid
             y_pid = 0.001 if y_pid == 0 else y_pid
             
-            x_pid /= 1000
-            y_pid /= 1000
+#             x_pid = x_ball if x_ball else 0.001
+#             y_pid = y_ball if y_ball else 0.001
 
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
+            
+#             print("x pos: ", x_ball)
+#             print("y pos: ", y_ball)
+#             print("x pid: ", x_pid)
+#             print("y pid: ", y_pid)
 
             # Calculate velocity and angles
             V = np.sqrt(x_pid**2 + y_pid**2)
-            theta_rad = np.arctan2(y_pid, x_pid)
+            theta_rad = np.arctan(y_pid / x_pid)
             theta_deg = np.degrees(theta_rad)
             
-            print("ball mass: ", ball_mass)
+#             print("ball mass: ", ball_mass)
 
             # Calculate phi based on dynamics (assuming some relation)
             try:
-                if abs(((2 * V) / (ball_mass * self.g))) > 1:
+                if abs(((2 * V) / (self.g * self.s**2))) > 1:
                     raise ValueError("invalid value encountered in arcsin")
-                phi_rad = np.arcsin((2 * V) / (ball_mass * self.g)) / 2
+                phi_rad = np.arcsin((2 *  V) / (self.g * self.s**2)) / 2
                 phi_deg = np.degrees(phi_rad)
                 phi_deg = np.clip(phi_deg, -15, 15)
             except ValueError as e:
                 print("Error with calculation of phi: ", e)
-                print("(2 * V) / (ball_mass * self.g) = ", ((2 * V) / (ball_mass * self.g)))
+                print("(2 *  V) / (self.g * self.s**2) = ", ((2 *  V) / (self.g * self.s**2)))
                 phi_deg = 15 if V > 0 else -15
 
             # Calculate velocity components
@@ -246,49 +256,64 @@ class Controller:
 
             # Link 1 Theta Calculations
             L_a1 = np.sqrt(x1**2 + y1**2 + z1**2)
-            try:
-                angle_inner1 = np.arccos(z1 / L_a1) + 1.5708  # Adding 90 degrees in radians
-                acos_arg1 = (-L_2**2 + (x1**2 + y1**2 + z1**2) +
-                             2 * L_m * L_a1 * np.cos(angle_inner1) +
-                             L_m**2) / (2 * L_1)
-                if -1 <= acos_arg1 <= 1:
-                    theta_1 = np.degrees(np.arccos(acos_arg1))
-                else:
-                    theta_1 = 90  # Default or handle error
-            except:
-                theta_1 = 90  # Default or handle error
+#             try:
+#                 angle_inner1 = np.arccos(z1 / L_a1) + 1.5708  # Adding 90 degrees in radians
+#                 acos_arg1 = (-L_2**2 + (x1**2 + y1**2 + z1**2) +
+#                              2 * L_m * L_a1 * np.cos(angle_inner1) +
+#                              L_m**2) / (2 * L_1)
+#                 if -1 <= acos_arg1 <= 1:
+#                     theta_1 = np.degrees(np.arccos(acos_arg1))
+#                 else:
+#                     theta_1 = 90  # Default or handle error
+#             except:
+#                 theta_1 = 90  # Default or handle error
+            theta_1 = np.degrees(
+                np.arccos(
+                    (-L_2**2 + (x1**2 + y1**2 + z1**2) + 2*L_m*L_a1 * np.cos(np.arccos(z1/L_a1) + np.pi/2) + L_m**2) / L_1
+                ) - 2 * L_a1 * (np.arccos(z1 / L_a1) + np.pi/2)
+            ) / (2 * L_a1 + L_m - 2 * L_1)
 
             theta_1 = np.clip(theta_1, 90, 179)
 
             # Link 2 Theta Calculations
             L_a2 = np.sqrt(x2**2 + y2**2 + z2**2)
-            try:
-                angle_inner2 = np.arccos(z2 / L_a2) + 1.5708
-                acos_arg2 = (-L_2**2 + (x2**2 + y2**2 + z2**2) +
-                             2 * L_m * L_a2 * np.cos(angle_inner2) +
-                             L_m**2) / (2 * L_1)
-                if -1 <= acos_arg2 <= 1:
-                    theta_2 = np.degrees(np.arccos(acos_arg2))
-                else:
-                    theta_2 = 90  # Default or handle error
-            except:
-                theta_2 = 90  # Default or handle error
+#             try:
+#                 angle_inner2 = np.arccos(z2 / L_a2) + 1.5708
+#                 acos_arg2 = (-L_2**2 + (x2**2 + y2**2 + z2**2) +
+#                              2 * L_m * L_a2 * np.cos(angle_inner2) +
+#                              L_m**2) / (2 * L_1)
+#                 if -1 <= acos_arg2 <= 1:
+#                     theta_2 = np.degrees(np.arccos(acos_arg2))
+#                 else:
+#                     theta_2 = 90  # Default or handle error
+#             except:
+#                 theta_2 = 90  # Default or handle error
+            
+            theta_2 = np.degrees(
+                np.arccos(
+                    (-L_2**2 + (x2**2 + y2**2 + z2**2) + 2*L_m*L_a2 * np.cos(np.arccos(z2/L_a2) + np.pi/2) + L_m**2) / L_1
+                ) - 2 * L_a2 * (np.arccos(z2 / L_a2) + np.pi/2)
+            ) / (2 * L_a2 + L_m - 2 * L_1)
+
 
             theta_2 = np.clip(theta_2, 90, 179)
 
             # Link 3 Theta Calculations
             L_a3 = np.sqrt(x3**2 + y3**2 + z3**2)
-            try:
-                angle_inner3 = np.arccos(z3 / L_a3) + 1.5708
-                acos_arg3 = (-L_2**2 + (x3**2 + y3**2 + z3**2) +
-                             2 * L_m * L_a3 * np.cos(angle_inner3) +
-                             L_m**2) / (2 * L_1)
-                if -1 <= acos_arg3 <= 1:
-                    theta_3 = np.degrees(np.arccos(acos_arg3))
-                else:
-                    theta_3 = 90  # Default or handle error
-            except:
-                theta_3 = 90  # Default or handle error
+#             try:
+#                 
+#                 if -1 <= acos_arg3 <= 1:
+#                     theta_3 = np.degrees(np.arccos(acos_arg3))
+#                 else:
+#                     theta_3 = 90  # Default or handle error
+#             except:
+#                 theta_3 = 90  # Default or handle error
+            
+            theta_3 = np.degrees(
+                np.arccos(
+                    (-L_2**2 + (x3**2 + y3**2 + z3**2) + 2*L_m*L_a3 * np.cos(np.arccos(z3/L_a3) + np.pi/2) + L_m**2) / L_1
+                ) - 2 * L_a3 * (np.arccos(z3 / L_a3) + np.pi/2)
+            ) / (2 * L_a3 + L_m - 2 * L_1)
 
             theta_3 = np.clip(theta_3, 90, 179)
 
@@ -304,18 +329,25 @@ class Controller:
             self.results['theta_3'].append(theta_3)
 
             callback(theta_1, theta_2, theta_3)
-
-            print(f"V: {V:.5f} m/s")
-            print(f"Theta: {theta_deg:.2f} degrees")
-            print(f"Phi: {phi_deg:.2f} degrees")
-            print(f"Alpha: {alpha:.5f}")
-            print(f"Beta: {beta:.5f}")
-            print(f"Gamma: {gamma:.5f}")
-            print(f"Theta_1: {theta_1:.2f} degrees")
-            print(f"Theta_2: {theta_2:.2f} degrees")
-            print(f"Theta_3: {theta_3:.2f} degrees")
-            print("-" * 40)
-
+            
+#             print(f"x: {round(x1, 3)}, {round(x2, 3)}, {round(x3, 3)}")
+#             print(f"y: {round(y1, 3)}, {round(y2, 3)}, {round(y3, 3)}")
+#             print(f"z: {round(z1, 3)}, {round(z2, 3)}, {round(z3, 3)}")
+#             print(f"L_a: {round(L_a1, 3)}, {round(L_a2, 3)}, {round(L_a3, 3)}")
+# 
+#             print(f"V: {V:.5f} m/s")
+#             print(f"Theta: {theta_deg:.2f} degrees")
+#             print(f"Phi: {phi_deg:.2f} degrees")
+#             print(f"Alpha: {alpha:.5f}")
+#             print(f"Beta: {beta:.5f}")
+#             print(f"Gamma: {gamma:.5f}")
+#             print(f"Theta_1: {theta_1:.2f} degrees")
+#             print(f"Theta_2: {theta_2:.2f} degrees")
+#             print(f"Theta_3: {theta_3:.2f} degrees")
+#             print("-" * 40)
+            
+            e_t = time.time()
+            print(f"Calc took {e_t - s_t} seconds.")
             time.sleep(self.delay)
 
     def get_results(self):
@@ -326,3 +358,9 @@ class Controller:
             dict: A dictionary containing lists of computed values.
         """
         return self.results
+    
+    def reset(self):
+        self.active = False
+        self._initialize(*self._init_params[0], **self._init_params[1])
+
+        

@@ -3,7 +3,7 @@ import numpy as np
 import time
 import threading
 
-PLATFORM_COLOUR = [[110, 150, 115], [120, 250, 180]]
+PLATFORM_COLOUR = [[110, 140, 80], [120, 255, 180]]
 
 class CameraVision:
     def __init__(self):
@@ -22,9 +22,9 @@ class CameraVision:
 
         # Ball color range (HSV)
         self.ball_colors = {
-            "pingpong": [[15, 100, 100], [25, 255, 255]],
+            "pingpong": [[11, 120, 160], [20, 200, 240]],
             "bearing": [[0, 0, 0], [179, 255, 50]],
-            "golf": [[2, 2, 60], [120, 230, 250]],
+            "golf": [[40, 10, 150], [80, 100, 250]],
         }
         self.ball_type = "pingpong"  # Default ball type
         self.ball_lower = np.array(self.ball_colors[self.ball_type][0])
@@ -72,7 +72,7 @@ class CameraVision:
             frame = cv.resize(frame, (self.frame_width, self.frame_height))
             with self.lock:
                 self.frame = frame.copy()
-            time.sleep(0.015)
+            time.sleep(0.05)
 
     def set_ball_type(self, ball_type):
         with self.lock:
