@@ -38,6 +38,10 @@ class CameraVision:
         self.program_type = 'center'
         self.positions = self.program_positions[self.program_type]
 
+        self.platform_circle_center = (0, 0)
+        self.platform_circle_radius = 0
+        self.show_platform_circle = False
+
         # Platform color range (HSV)
         self.platform_color = PLATFORM_COLOUR
 
@@ -93,6 +97,8 @@ class CameraVision:
     def set_show_platform_contour(self, show):
         with self.lock:
             self.show_platform_contour = show
+            if not show:
+                self.show_platform_circle = False
 
     def set_show_ball_contour(self, show):
         with self.lock:
@@ -131,10 +137,23 @@ class CameraVision:
 
                 self.platform_center = self.detect_platform_center(largest_platform)
                 print(f"Platform center updated: {self.platform_center}")
+
+                # Calculate minimum enclosing circle
+                (x, y), radius = cv.minEnclosingCircle(largest_platform)
+                self.platform_circle_center = (int(x), int(y))
+                self.platform_circle_radius = int(radius)
+                self.show_platform_circle = True
+
+                print(f"Platform enclosing circle radius: {self.platform_circle_radius} pixels")
             else:
                 self.platform_contour = None
                 self.platform_center = None
+                # Reset enclosing circle properties
+                self.platform_circle_center = (0, 0)
+                self.platform_circle_radius = 0
+                self.show_platform_circle = False
                 print("Platform not detected.")
+
 
     def start_detection(self):
         if not self.detecting:
@@ -208,32 +227,43 @@ class CameraVision:
 
                 # Draw platform contour
                 if self.show_platform_contour and self.platform_contour is not None:
-                    cv.drawContours(frame, [self.platform_contour], -1, (255, 0, 0), 2)
+                    cv.drawContours(frame, [self.platform_contour], -1, (255, 0, 0), 2)  # Blue contour
 
                 # Draw platform center
                 if self.platform_center:
-                    cv.circle(frame, self.platform_center, 5, (0, 255, 0), -1)
-                    cv.putText(frame, f"Center: {self.platform_center}", (self.platform_center[0] + 10, self.platform_center[1]),
-                               cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    cv.circle(frame, self.platform_center, 5, (0, 255, 0), -1)  # Green center
+                    cv.putText(frame, f"Center: {self.platform_center}", 
+                            (self.platform_center[0] + 10, self.platform_center[1]),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
                 # Draw ball contour
                 if self.show_ball_contour and self.ball_contour is not None:
-                    cv.drawContours(frame, [self.ball_contour], -1, (0, 165, 255), 2)
+                    cv.drawContours(frame, [self.ball_contour], -1, (0, 165, 255), 2)  # Orange contour
 
                 # Draw ball position
                 if self.ball_position:
-                    cv.circle(frame, self.ball_position, 5, (0, 0, 255), -1)
-                    cv.putText(frame, f"Ball: {self.ball_position}", (self.ball_position[0] + 10, self.ball_position[1]),
-                               cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                    cv.circle(frame, self.ball_position, 5, (0, 0, 255), -1)  # Red ball
+                    cv.putText(frame, f"Ball: {self.ball_position}", 
+                            (self.ball_position[0] + 10, self.ball_position[1]),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
                 # Draw target position
                 if self.platform_center and self.positions:
                     x_inc, y_inc = self.positions[self.current_position_index]
                     x_target = self.platform_center[0] + x_inc
                     y_target = self.platform_center[1] + y_inc
-                    cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)
+                    cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)  # Blue target
                     cv.putText(frame, f"Target: ({int(x_target)}, {int(y_target)})", (10, 30),
-                               cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                            cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
+                # Draw platform enclosing circle
+                if self.show_platform_circle:
+                    cv.circle(frame, self.platform_circle_center, self.platform_circle_radius, (0, 0, 255), 2)  # Red circle
+                    # Display the radius value near the circle
+                    cv.putText(frame, f"Radius: {self.platform_circle_radius} px", 
+                            (self.platform_circle_center[0] + self.platform_circle_radius + 10, 
+                                self.platform_circle_center[1]),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
                 return frame
             else:
