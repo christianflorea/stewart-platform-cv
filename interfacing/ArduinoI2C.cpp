@@ -7,7 +7,6 @@ void handleManualMove(byte servoByte, byte directionByte, byte stepByte);
 void handleBulkMove(byte angle1, byte angle2, byte angle3);
 void handleHoming();
 void setServoPosition(byte servoNumber, int angle);
-void homeAllServos();
 
 // Constants
 const int ABSOLUTE_MIN = 85;
@@ -30,19 +29,31 @@ int positions[3] = {170, 170, 170};
 int minPositions[3] = {ABSOLUTE_MIN, ABSOLUTE_MIN, ABSOLUTE_MIN};
 
 // Flags and variables
-volatile bool homingRequested = false;
 volatile bool commandReceived = false;
 volatile byte receivedCommandCode;
 volatile byte receivedData[3];
-bool processingCommand = false;
 
 // Timing variables
 volatile unsigned long commandReceivedTime = 0;
 unsigned long servoMovedTime = 0;
 
+// Homing state machine variables
+enum HomingState {
+  HOMING_IDLE,
+  HOMING_START,
+  HOMING_MOVE_DOWN,
+  HOMING_RELEASE_SWITCHES,
+  HOMING_MOVE_UP,
+  HOMING_DONE
+};
+
+HomingState homingState = HOMING_IDLE;
+unsigned long lastHomingTime = 0;
+const unsigned long homingInterval = 10; // Interval in milliseconds
+bool limitSwitchActivated[3] = {false, false, false};
+
 void setup() {
   Serial.begin(9600);
-  Serial.println("Setup started");
 
   // I2C communication
   Wire.begin(0x8);  // Arduino I2C address set to 0x08
@@ -58,8 +69,6 @@ void setup() {
   for (int i = 0; i < 3; i++) {
     pinMode(limitSwitchPins[i], INPUT_PULLUP);
   }
-
-  Serial.println("Setup done");
 }
 
 void loop() {
@@ -77,24 +86,91 @@ void loop() {
     } else if (receivedCommandCode == 4) {
       handleBulkMove(receivedData[0], receivedData[1], receivedData[2]);
     } else {
-      Serial.print("Unknown command code received: ");
-      Serial.println(receivedCommandCode);
+      // Unknown command code
     }
 
     // The servoMovedTime is set within the servo movement functions
     // Calculate and display the time difference
     unsigned long timeToMove = servoMovedTime - commandReceivedTime;
-    Serial.print("Time from I2C receive to servo move: ");
-    Serial.print(timeToMove);
-    Serial.println(" microseconds");
+    // Uncomment for debugging
+    // Serial.print("Time from I2C receive to servo move: ");
+    // Serial.print(timeToMove);
+    // Serial.println(" microseconds");
   }
 
-  // Homing
-  if (homingRequested && !processingCommand) {
-    homingRequested = false;
-    processingCommand = true;
-    homeAllServos();
-    processingCommand = false;
+  // Homing state machine
+  if (homingState != HOMING_IDLE && homingState != HOMING_DONE) {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - lastHomingTime >= homingInterval) {
+      lastHomingTime = currentMillis;
+
+      // Process homing steps
+      switch (homingState) {
+        case HOMING_START:
+          // Set initial positions to 110
+          for (int i = 0; i < 3; i++) {
+            positions[i] = 110;
+            servos[i]->write(positions[i]);
+          }
+          homingState = HOMING_MOVE_DOWN;
+          break;
+
+        case HOMING_MOVE_DOWN: {
+          // Move servos down until limit switches are hit
+          bool allLimitSwitchesActivated = true;
+          for (int i = 0; i < 3; i++) {
+            if (!limitSwitchActivated[i]) {
+              if (digitalRead(limitSwitchPins[i]) == HIGH) {
+                // Move down by 1 step
+                positions[i] -= 1;
+                if (positions[i] < minPositions[i]) positions[i] = minPositions[i];
+                servos[i]->write(positions[i]);
+                allLimitSwitchesActivated = false;
+              } else {
+                limitSwitchActivated[i] = true;
+                minPositions[i] = positions[i];
+              }
+            }
+          }
+          if (allLimitSwitchesActivated) {
+            homingState = HOMING_RELEASE_SWITCHES;
+          }
+          break;
+        }
+
+        case HOMING_RELEASE_SWITCHES:
+          // Move servos up by 10 degrees to release limit switches
+          for (int i = 0; i < 3; i++) {
+            if (limitSwitchActivated[i]) {
+              positions[i] += 10;
+              if (positions[i] > MAX_POSITION) positions[i] = MAX_POSITION;
+              servos[i]->write(positions[i]);
+            }
+          }
+          homingState = HOMING_MOVE_UP;
+          break;
+
+        case HOMING_MOVE_UP: {
+          // Move servos up a bit more
+          static int moveUpCount = 0;
+          if (moveUpCount < 9) {
+            for (int i = 0; i < 3; i++) {
+              positions[i] += 5;
+              if (positions[i] > MAX_POSITION) positions[i] = MAX_POSITION;
+              servos[i]->write(positions[i]);
+            }
+            moveUpCount++;
+          } else {
+            homingState = HOMING_DONE;
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    }
   }
 
   // No additional processing needed in loop
@@ -138,15 +214,7 @@ void receiveEvent(int bytes) {
 
 // Function to handle manual servo move commands
 void handleManualMove(byte servoByte, byte directionByte, byte stepByte) {
-  Serial.print("Manual Move Command received for Servo ");
-  Serial.print(servoByte);
-  Serial.print(" with Direction ");
-  Serial.print(directionByte);
-  Serial.print(" and Step ");
-  Serial.println(stepByte);
-
   if (servoByte < 1 || servoByte > 3) {
-    Serial.println("Invalid servo number in handleManualMove.");
     return;
   }
 
@@ -161,7 +229,6 @@ void handleManualMove(byte servoByte, byte directionByte, byte stepByte) {
     positions[index] -= stepByte;
     if (positions[index] < minPositions[index]) positions[index] = minPositions[index];
   } else {
-    Serial.println("Invalid direction in handleManualMove.");
     return;
   }
 
@@ -169,34 +236,19 @@ void handleManualMove(byte servoByte, byte directionByte, byte stepByte) {
   servoMovedTime = micros();
 
   servos[index]->write(positions[index]);
-  Serial.print("Servo ");
-  Serial.print(servoByte);
-  Serial.print(" moved to ");
-  Serial.println(positions[index]);
 }
 
 // Function to handle bulk servo move commands
 void handleBulkMove(byte angle1, byte angle2, byte angle3) {
-  Serial.println("Bulk Move Command received.");
-  Serial.print("Angle1: ");
-  Serial.print(angle1);
-  Serial.print(", Angle2: ");
-  Serial.print(angle2);
-  Serial.print(", Angle3: ");
-  Serial.println(angle3);
-
   byte angles[3] = {angle1, angle2, angle3};
   for (int i = 0; i < 3; i++) {
     setServoPosition(i + 1, angles[i]);
   }
-
-  Serial.println("Bulk Move Command executed.");
 }
 
 // Function to set servo position
 void setServoPosition(byte servoNumber, int angle) {
   if (servoNumber < 1 || servoNumber > 3) {
-    Serial.println("Invalid servo number in setServoPosition.");
     return;
   }
 
@@ -211,76 +263,13 @@ void setServoPosition(byte servoNumber, int angle) {
   servoMovedTime = micros();
 
   servos[index]->write(positions[index]);
-
-  Serial.print("Servo ");
-  Serial.print(servoNumber);
-  Serial.print(" set to ");
-  Serial.println(positions[index]);
 }
 
 // Function to handle homing command
 void handleHoming() {
-  Serial.println("Homing command received.");
-  homingRequested = true;
-}
-
-// Function to home all servos
-void homeAllServos() {
-  Serial.println("Homing all servos simultaneously.");
-
-  bool limitSwitchActivated[3] = {false, false, false};
-
-  // Set initial positions to 110
+  homingState = HOMING_START;
+  lastHomingTime = millis();
   for (int i = 0; i < 3; i++) {
-    positions[i] = 110;
-    servos[i]->write(positions[i]);
+    limitSwitchActivated[i] = false;
   }
-
-  // Move servos down until limit switches are hit
-  while (!(limitSwitchActivated[0] && limitSwitchActivated[1] && limitSwitchActivated[2])) {
-    for (int i = 0; i < 3; i++) {
-      if (!limitSwitchActivated[i]) {
-        if (digitalRead(limitSwitchPins[i]) == HIGH) {
-          // Move down by 1 step
-          positions[i] -= 1;
-          if (positions[i] < minPositions[i]) positions[i] = minPositions[i];
-          servos[i]->write(positions[i]);
-          delay(10);
-        } else {
-          limitSwitchActivated[i] = true;
-          minPositions[i] = positions[i];
-          Serial.print("Servo ");
-          Serial.print(i + 1);
-          Serial.print(" limit switch activated at position ");
-          Serial.println(minPositions[i]);
-        }
-      }
-    }
-    delay(50);
-  }
-
-  // Move servos up by 10 degrees to release limit switches
-  for (int i = 0; i < 3; i++) {
-    if (limitSwitchActivated[i]) {
-      positions[i] += 10;
-      if (positions[i] > MAX_POSITION) positions[i] = MAX_POSITION;
-      servos[i]->write(positions[i]);
-      Serial.print("Servo ");
-      Serial.print(i + 1);
-      Serial.print(" homed. Min position set to ");
-      Serial.println(minPositions[i]);
-    }
-  }
-
-  // Move servos up a bit more
-  for (int i = 0; i < 9; i++) {
-    for (int j = 0; j < 3; j++) {
-      positions[j] += 5;
-      if (positions[j] > MAX_POSITION) positions[j] = MAX_POSITION;
-      servos[j]->write(positions[j]);
-    }
-    delay(60);
-  }
-
-  Serial.println("Homing process completed.");
 }
