@@ -17,9 +17,9 @@ const int limitSwitch1Pin = 2;
 const int limitSwitch2Pin = 3;
 const int limitSwitch3Pin = 4;
 
-int position1 = 135;
-int position2 = 135;
-int position3 = 135;
+int position1 = 170;
+int position2 = 170;
+int position3 = 170;
 
 // Minimum positions for servos (to be determined during homing)
 int minPosition1 = ABSOLUTE_MIN;
@@ -201,7 +201,8 @@ void setServoPosition(byte servoByte, byte angleByte) {
   }
 
   int desiredPosition = angleByte;
-  desiredPosition = constrain(desiredPosition, *minPositionPtr, MAX_POSITION);
+  int minPositionWithSafety = *minPositionPtr + 35;
+  desiredPosition = constrain(desiredPosition, minPositionWithSafety, MAX_POSITION);
 
   servoPtr->write(desiredPosition);
   *positionPtr = desiredPosition;
@@ -225,7 +226,7 @@ void homeAllServos() {
 
   // initial positions to 135
   for (int i = 0; i < 3; i++) {
-    *positions[i] = 135;
+    *positions[i] = 110;
     servos[i]->write(*positions[i]);
   }
 
@@ -234,7 +235,7 @@ void homeAllServos() {
     for (int i = 0; i < 3; i++) {
       if (!limitSwitchActivated[i]) {
         if (digitalRead(limitSwitchPins[i]) == HIGH) {
-          handleCommand(i + 1, 0x0, STEP);
+          handleCommand(i + 1, 0x0, 1);
           delay(10);
         } else {
           limitSwitchActivated[i] = true;
@@ -261,7 +262,7 @@ void homeAllServos() {
   }
 
   // Move servos up a bit more
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 9; i++) {
     for (int j = 0; j < 3; j++) {
       handleCommand(j + 1, 0x1, 0x5);
     }
