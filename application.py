@@ -144,11 +144,17 @@ class CameraVisionGUI:
 
             tk.Label(servo_control_frame, text=f"Servo {i}").grid(row=0, column=0, columnspan=2)
 
-            up_button = ttk.Button(servo_control_frame, text="Up", command=lambda i=i: self.move_servo(i, "up"))
+            up_button = ttk.Button(servo_control_frame, text="Up", command=lambda i=i: self.move_servo_up(i))
             up_button.grid(row=1, column=0, padx=5, pady=2)
 
-            down_button = ttk.Button(servo_control_frame, text="Down", command=lambda i=i: self.move_servo(i, "down"))
+            down_button = ttk.Button(servo_control_frame, text="Down", command=lambda i=i: self.move_servo_down(i))
             down_button.grid(row=1, column=1, padx=5, pady=2)
+
+    def move_servo_up(self, servo_number):
+        self.move_servo(servo_number, "up")
+
+    def move_servo_down(self, servo_number):
+        self.move_servo(servo_number, "down")
 
     def start_controller_following(self):
         if not self.controller.active:
@@ -173,7 +179,7 @@ class CameraVisionGUI:
         for theta in desired_angles:
             # Convert theta as per original code (270 - theta)
             processed_theta = 270 - theta
-            # Clamp the angle between 85 and 180
+            # Clamp the angle between 90 and 180 (adjusted from 85 to 90 for safety)
             processed_theta = max(90, min(180, int(processed_theta)))
             processed_angles.append(processed_theta)
 
@@ -192,31 +198,28 @@ class CameraVisionGUI:
         except Exception as e:
             messagebox.showerror("I2C Communication Error", f"Error sending bulk command: {e}")
 
-    def send_servo_commands(self, theta_1, theta_2, theta_3):
+    def send_servo_commands_automated(self, servo_number, theta):
         """
-        Receives desired servo angles from Controller and sends I2C commands.
+        Sends desired servo angle for a single servo in an automated manner.
         """
-        desired_angles = [theta_1, theta_2, theta_3]
-        for i in range(3):
-            desired_angles[i] = 270 - desired_angles[i]
-            
-        for i, desired_angle in enumerate(desired_angles, start=1):
-            desired_angle = max(85, min(180, int(desired_angle)))
+        desired_angle = theta
+        processed_theta = 270 - desired_angle
+        processed_theta = max(85, min(180, int(processed_theta)))
 
-            with self.servo_lock:
-                self.current_servo_positions[i-1] = desired_angle
+        with self.servo_lock:
+            self.current_servo_positions[servo_number - 1] = processed_theta
 
-            # Send I2C command
-            if self.bus:
-                try:
-                    servo_byte = i  # 1, 2, or 3
-                    angle_byte = desired_angle
-                    self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [angle_byte])
-                    print(f"Command sent: Set Servo {i} to {desired_angle} degrees.")
-                except Exception as e:
-                    messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
-            else:
-                messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
+        # Prepare the I2C message
+        try:
+            # Command identifier for automated single servo command
+            command_identifier = 0x01
+            # Combine command identifier, servo number, and angle
+            i2c_data = [command_identifier, servo_number, processed_theta]
+            # Write the data as a block
+            self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
+            print(f"Automated Command sent: Set Servo {servo_number} to {processed_theta} degrees.")
+        except Exception as e:
+            messagebox.showerror("I2C Communication Error", f"Error sending automated servo command: {e}")
 
     def move_servo(self, servo_number, direction):
         """
@@ -224,27 +227,37 @@ class CameraVisionGUI:
         """
         if self.bus:
             try:
+                # Command identifier for manual move command
+                command_identifier = 0x00
                 servo_byte = servo_number  # 1, 2, or 3
                 direction_byte = 0x1 if direction == "up" else 0x0  # 1 for up, 0 for down
-                step_byte = 0xA  # 10 steps
-                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
-                print(f"Command sent: Move Servo {servo_number} {direction} by {step_byte} steps.")
+                step_byte = 10  # 10 steps
+                # Combine into a single list
+                i2c_data = [command_identifier, servo_byte, direction_byte, step_byte]
+                # Write the data as a block
+                self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
+                print(f"Manual Move Command sent: Move Servo {servo_number} {direction} by {step_byte} steps.")
             except Exception as e:
-                messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
+                messagebox.showerror("I2C Communication Error", f"Error sending manual move command: {e}")
         else:
             messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
 
     def home_all_servos(self):
         if self.bus:
             try:
-                # home: servo_byte = 0x0
-                # direction_byte = 0x0, step_byte = 0x0 (these do not matter)
-                servo_byte = 0x0
-                direction_byte = 0x0
-                step_byte = 0x0
-                self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
+                # Command identifier for homing command
+                # As per updated Arduino code, sending [0x0, 0x0, 0x0]
+                # Assuming homing command identifier is 0x00 with servo_byte=0x0
+                # Alternatively, if a specific command identifier is needed, adjust accordingly
+                command_identifier = 0x00
+                servo_byte = 0x0  # Indicates homing
+                direction_byte = 0x0  # Not used for homing
+                step_byte = 0x0  # Not used for homing
+                i2c_data = [command_identifier, servo_byte, direction_byte, step_byte]
+                self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
                 print("Homing command sent.")
 
+                # Optionally, reset current_servo_positions if homing sets them to known values
                 self.current_servo_positions = [135, 135, 135]
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending homing command: {e}")
@@ -301,7 +314,7 @@ class CameraVisionGUI:
                 ball_x_px, ball_y_px = self.cv.ball_position
                 platform_center_x_px, platform_center_y_px = self.cv.platform_center
 
-                # normalize coordinates to (0, 0) at platform center
+                # Normalize coordinates to (0, 0) at platform center
                 norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
 

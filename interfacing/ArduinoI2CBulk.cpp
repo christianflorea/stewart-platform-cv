@@ -1,38 +1,50 @@
 #include <Wire.h>
 #include <Servo.h>
 
+// Function prototypes
+void receiveEvent(int bytes);
+void handleCommand(byte servoByte, byte directionByte, byte stepByte);
+void setServoPosition(byte servoByte, byte angleByte);
+void handleBulkCommand(byte* angles);
+void setBulkServoPosition(byte servoByte, byte angleByte);
+void homeAllServos();
+
+// Servo objects
 Servo servo1;
 Servo servo2;
 Servo servo3;
 
-// ABSOLUTE_MIN is the minimum position for the servos to prevent platform damage
+// Constants
 const int ABSOLUTE_MIN = 85;
 const int MAX_POSITION = 180;
 
+// Servo pins
 const int servo1Pin = 5;
 const int servo2Pin = 7;
 const int servo3Pin = 6;
 
+// Limit switch pins
 const int limitSwitch1Pin = 2;
 const int limitSwitch2Pin = 3;
 const int limitSwitch3Pin = 4;
 
+// Current positions
 int position1 = 170;
 int position2 = 170;
 int position3 = 170;
 
-// Minimum positions for servos (to be determined during homing)
+// Minimum positions
 int minPosition1 = ABSOLUTE_MIN;
 int minPosition2 = ABSOLUTE_MIN;
 int minPosition3 = ABSOLUTE_MIN;
 
-// volatile needed for changing variables during while loop
+// Flags and variables
 volatile bool homingRequested = false;
 volatile byte receivedCommandType = 0xFF;
 volatile byte receivedData[6] = {0}; // Max bytes needed for bulk command
 volatile int receivedBytes = 0;
 
-// this was needed to prevent race conditions
+// Prevent race conditions
 bool processingCommand = false;
 
 void setup() {
@@ -43,14 +55,17 @@ void setup() {
   Wire.begin(0x8);
   Wire.onReceive(receiveEvent);
 
+  // Attach servos
   servo1.attach(servo1Pin);
   servo2.attach(servo2Pin);
   servo3.attach(servo3Pin);
 
+  // Set limit switch pins
   pinMode(limitSwitch1Pin, INPUT_PULLUP);
   pinMode(limitSwitch2Pin, INPUT_PULLUP);
   pinMode(limitSwitch3Pin, INPUT_PULLUP);
 
+  // Initialize servo positions
   servo1.write(position1);
   servo2.write(position2);
   servo3.write(position3);
@@ -59,7 +74,7 @@ void setup() {
 }
 
 void loop() {
-  // homing
+  // Homing
   if (homingRequested && !processingCommand) {
     homingRequested = false;
     processingCommand = true;
@@ -72,20 +87,31 @@ void loop() {
     processingCommand = true;
 
     if (receivedCommandType == 0x00) {
-      // Manual move command
+      // Manual move command: servoByte, directionByte, stepByte
       if (receivedBytes >= 3) {
         handleCommand(receivedData[0], receivedData[1], receivedData[2]);
+      } else {
+        Serial.println("Insufficient data for manual move command.");
       }
-    } else if (receivedCommandType == 0x10) {
-      // Bulk servo command
-      if (receivedBytes >= 4) {
+    }
+    else if (receivedCommandType == 0x10) {
+      // Bulk servo command: angle1, angle2, angle3
+      if (receivedBytes >= 3) {
         handleBulkCommand(&receivedData[0]);
+      } else {
+        Serial.println("Insufficient data for bulk servo command.");
       }
-    } else if (receivedCommandType == 0x01) {
-      // Automated single servo command
+    }
+    else if (receivedCommandType == 0x01) {
+      // Automated single servo command: servoByte, angleByte
       if (receivedBytes >= 2) {
         setServoPosition(receivedData[0], receivedData[1]);
+      } else {
+        Serial.println("Insufficient data for automated single servo command.");
       }
+    }
+    else {
+      Serial.println("Unknown command type received.");
     }
 
     // Reset received command
@@ -95,7 +121,7 @@ void loop() {
   }
 }
 
-// interrupt to handle incoming I2C data
+// Interrupt to handle incoming I2C data
 void receiveEvent(int bytes) {
   if (bytes < 1) {
     Serial.println("Received no data.");
@@ -112,8 +138,10 @@ void receiveEvent(int bytes) {
     // Manual move command expects 3 more bytes: servoByte, directionByte, stepByte
     if (bytes >= 4) {
       for (int i = 0; i < 3; i++) {
-        receivedData[i] = Wire.read();
-        receivedBytes++;
+        if (Wire.available()) {
+          receivedData[i] = Wire.read();
+          receivedBytes++;
+        }
       }
     } else {
       Serial.println("Insufficient bytes for manual move command.");
@@ -124,8 +152,10 @@ void receiveEvent(int bytes) {
     // Bulk servo command expects 3 more bytes: angle1, angle2, angle3
     if (bytes >= 4) {
       for (int i = 0; i < 3; i++) {
-        receivedData[i] = Wire.read();
-        receivedBytes++;
+        if (Wire.available()) {
+          receivedData[i] = Wire.read();
+          receivedBytes++;
+        }
       }
     } else {
       Serial.println("Insufficient bytes for bulk servo command.");
@@ -136,27 +166,11 @@ void receiveEvent(int bytes) {
     // Automated single servo command expects 2 more bytes: servoByte, angleByte
     if (bytes >= 3) {
       for (int i = 0; i < 2; i++) {
-        receivedData[i] = Wire.read();
-        receivedBytes++;
-  }
-  }
-  else if (bytes >=2) {
-    // sssume it's an automated move command: servoByte, angleByte
-    byte servoByte = Wire.read();
-    byte angleByte = Wire.read();
-
-    if (servoByte >=1 && servoByte <=3) {
-      receivedServoByte = servoByte;
-      receivedAngleByte = angleByte;
+        if (Wire.available()) {
+          receivedData[i] = Wire.read();
+          receivedBytes++;
+        }
       }
-  else if (bytes >=2) {
-    // sssume it's an automated move command: servoByte, angleByte
-    byte servoByte = Wire.read();
-    byte angleByte = Wire.read();
-
-    if (servoByte >=1 && servoByte <=3) {
-      receivedServoByte = servoByte;
-      receivedAngleByte = angleByte;
     } else {
       Serial.println("Insufficient bytes for automated single servo command.");
       receivedCommandType = 0xFF;
@@ -172,7 +186,7 @@ void receiveEvent(int bytes) {
   }
 }
 
-// function to handle manual move commands
+// Function to handle manual move commands
 void handleCommand(byte servoByte, byte directionByte, byte stepByte) {
   Servo* servoPtr = nullptr;
   int* positionPtr = nullptr;
@@ -222,7 +236,7 @@ void handleCommand(byte servoByte, byte directionByte, byte stepByte) {
   Serial.println(*positionPtr);
 }
 
-// function to handle automated move commands
+// Function to handle automated single servo command
 void setServoPosition(byte servoByte, byte angleByte) {
   Servo* servoPtr = nullptr;
   int* positionPtr = nullptr;
@@ -263,7 +277,7 @@ void setServoPosition(byte servoByte, byte angleByte) {
   Serial.println(" degrees.");
 }
 
-// function to handle bulk servo commands
+// Function to handle bulk servo commands
 void handleBulkCommand(byte* angles) {
   // angles[0] -> servo1, angles[1] -> servo2, angles[2] -> servo3
   Serial.println("Bulk servo command received.");
@@ -276,6 +290,7 @@ void handleBulkCommand(byte* angles) {
   Serial.println("Bulk servo command executed.");
 }
 
+// Function to set bulk servo position
 void setBulkServoPosition(byte servoByte, byte angleByte) {
   Servo* servoPtr = nullptr;
   int* positionPtr = nullptr;
@@ -316,7 +331,7 @@ void setBulkServoPosition(byte servoByte, byte angleByte) {
   Serial.println(" degrees (Bulk).");
 }
 
-// function to home all servos simultaneously
+// Function to home all servos
 void homeAllServos() {
   Serial.println("Homing all servos simultaneously.");
 
@@ -326,13 +341,13 @@ void homeAllServos() {
   int limitSwitchPins[3] = {limitSwitch1Pin, limitSwitch2Pin, limitSwitch3Pin};
   bool limitSwitchActivated[3] = {false, false, false};
 
-  // initial positions to 110
+  // Initial positions to 110
   for (int i = 0; i < 3; i++) {
     *positions[i] = 110;
     servos[i]->write(*positions[i]);
   }
 
-  // move servos down until limit switches are hit
+  // Move servos down until limit switches are hit
   while (!(limitSwitchActivated[0] && limitSwitchActivated[1] && limitSwitchActivated[2])) {
     for (int i = 0; i < 3; i++) {
       if (!limitSwitchActivated[i]) {
@@ -355,7 +370,7 @@ void homeAllServos() {
   // Move servos up by 10 degrees to release limit switches
   for (int i = 0; i < 3; i++) {
     if (limitSwitchActivated[i]) {
-      handleCommand(i + 1, 0x1, 0xA);
+      handleCommand(i + 1, 0x1, 10); // 10 instead of 0xA for clarity
       Serial.print("Servo ");
       Serial.print(i + 1);
       Serial.print(" homed. Min position set to ");
@@ -366,7 +381,7 @@ void homeAllServos() {
   // Move servos up a bit more
   for (int i = 0; i < 9; i++) {
     for (int j = 0; j < 3; j++) {
-      handleCommand(j + 1, 0x1, 0x5);
+      handleCommand(j + 1, 0x1, 5);
     }
     delay(60);
   }
