@@ -154,7 +154,9 @@ class CameraVision:
                 self.show_platform_circle = False
                 print("Platform not detected.")
 
-
+    def is_detecting(self):
+        return self.detecting
+    
     def start_detection(self):
         if not self.detecting:
             self.detecting = True

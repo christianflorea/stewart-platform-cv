@@ -19,9 +19,7 @@ class Controller:
         self._init_params = (args, kwargs)
         self._initialize(*args, **kwargs)
 
-    def _initialize(self, radius=0.035, num_points=100, delay=0.05, kp=1.0, kd=1.0, ki=1.0, s=0.7, ball_mass=0.04593):
-        self.radius = radius
-        self.num_points = num_points
+    def _initialize(self,delay=0.05, kp=1.0, kd=1.0, ki=1.0, s=0.7, ball_mass=0.05):
         self.delay = delay
         self.kp = kp
         self.kd = kd
@@ -32,6 +30,9 @@ class Controller:
         # Placeholder for current ball position, initialized at center
         self.x_ball = 0.0
         self.y_ball = 0.0
+
+        self.x_goal = 0.0
+        self.y_goal = 0.0
 
         # PID controller state
         self.error_x_last = 0.0
@@ -59,6 +60,12 @@ class Controller:
         self.active = False
 
         self.lock = threading.Lock()
+    
+    def is_active(self):
+        """
+        Returns the status of the controller.
+        """
+        return self.active
 
     def set_ball_mass(self, mass):
         """
@@ -76,6 +83,26 @@ class Controller:
             self.x_ball = x 
             self.y_ball = y
 #         print(f"Ball position updated to ({self.x_ball}, {self.y_ball})")
+    
+    def set_goal_position(self, x, y):
+        """
+        Sets the goal position.
+        """
+        with self.lock:
+            self.x_goal = x
+            self.y_goal = y
+    
+    def set_kp(self, kp):
+        with self.lock:
+            self.kp = kp
+
+    def set_ki(self, ki):
+        with self.lock:
+            self.ki = ki
+    
+    def set_kd(self, kd):
+        with self.lock:
+            self.kd = kd
 
     def run(self, callback):
         """
@@ -94,8 +121,8 @@ class Controller:
                 y_ball = self.y_ball / 1000
 
             # Goal position (platform center)
-            x_goal = 0.0
-            y_goal = 0.0
+            x_goal = self.x_goal
+            y_goal = self.y_goal
 
             # Calculate errors
             error_x = x_goal + x_ball
