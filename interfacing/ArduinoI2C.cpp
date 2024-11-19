@@ -9,7 +9,7 @@ void handleHoming();
 void setServoPosition(byte servoNumber, int angle);
 
 // Constants
-const int ABSOLUTE_MIN = 85;
+const int ABSOLUTE_MIN = 80;
 const int MAX_POSITION = 180;
 
 // Servo objects and arrays for easy indexing
@@ -51,8 +51,10 @@ HomingState homingState = HOMING_IDLE;
 unsigned long lastHomingTime = 0;
 const unsigned long homingInterval = 10; // Interval in milliseconds
 bool limitSwitchActivated[3] = {false, false, false};
+int moveUpCount = 0; // Moved outside the switch-case to persist value
 
 void setup() {
+  // Initialize Serial communication (can be commented out in production)
   Serial.begin(9600);
 
   // I2C communication
@@ -73,6 +75,14 @@ void setup() {
 
 void loop() {
   // Process received command
+  // print current position
+  Serial.print("Servo 1: ");
+  Serial.print(positions[0]);
+  Serial.print(" Servo 2: ");
+  Serial.print(positions[1]);
+  Serial.print(" Servo 3: ");
+  Serial.println(positions[2]);
+  
   if (commandReceived) {
     commandReceived = false; // Reset the flag
 
@@ -85,17 +95,17 @@ void loop() {
       handleManualMove(receivedCommandCode, receivedData[0], receivedData[1]);
     } else if (receivedCommandCode == 4) {
       handleBulkMove(receivedData[0], receivedData[1], receivedData[2]);
-    } else {
-      // Unknown command code
     }
+    // No else block needed; unknown commands are ignored
 
     // The servoMovedTime is set within the servo movement functions
-    // Calculate and display the time difference
+    // You can uncomment the following lines for debugging
+    /*
     unsigned long timeToMove = servoMovedTime - commandReceivedTime;
-    // Uncomment for debugging
-    // Serial.print("Time from I2C receive to servo move: ");
-    // Serial.print(timeToMove);
-    // Serial.println(" microseconds");
+    Serial.print("Time from I2C receive to servo move: ");
+    Serial.print(timeToMove);
+    Serial.println(" microseconds");
+    */
   }
 
   // Homing state machine
@@ -130,6 +140,9 @@ void loop() {
               } else {
                 limitSwitchActivated[i] = true;
                 minPositions[i] = positions[i];
+                // You can uncomment the following line for debugging
+                Serial.println("Limit switch activated for servo " + String(i+1));
+                Serial.println("At position " + String(positions[i]));
               }
             }
           }
@@ -143,17 +156,17 @@ void loop() {
           // Move servos up by 10 degrees to release limit switches
           for (int i = 0; i < 3; i++) {
             if (limitSwitchActivated[i]) {
-              positions[i] += 10;
+              positions[i] = minPositions[i] += 10;
               if (positions[i] > MAX_POSITION) positions[i] = MAX_POSITION;
               servos[i]->write(positions[i]);
             }
           }
           homingState = HOMING_MOVE_UP;
+          moveUpCount = 0; // Reset moveUpCount before moving up
           break;
 
-        case HOMING_MOVE_UP: {
-          // Move servos up a bit more
-          static int moveUpCount = 0;
+        case HOMING_MOVE_UP:
+          // Move servos up by 5 degrees, 9 times, to move up by 45 degrees
           if (moveUpCount < 9) {
             for (int i = 0; i < 3; i++) {
               positions[i] += 5;
@@ -165,12 +178,16 @@ void loop() {
             homingState = HOMING_DONE;
           }
           break;
-        }
 
         default:
           break;
       }
     }
+  }
+
+  // Reset homing state when done
+  if (homingState == HOMING_DONE) {
+    homingState = HOMING_IDLE;
   }
 
   // No additional processing needed in loop
@@ -259,6 +276,9 @@ void setServoPosition(byte servoNumber, int angle) {
 
   positions[index] = angle;
 
+  // apply minPosition offset from 90 to angle
+  positions[index] += (minPositions[index] - 90);
+
   // Record the time right before moving the servo
   servoMovedTime = micros();
 
@@ -272,4 +292,5 @@ void handleHoming() {
   for (int i = 0; i < 3; i++) {
     limitSwitchActivated[i] = false;
   }
+  moveUpCount = 0; // Reset moveUpCount
 }
