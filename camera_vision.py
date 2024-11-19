@@ -3,7 +3,7 @@ import numpy as np
 import time
 import threading
 
-PLATFORM_COLOUR = [[110, 80, 220], [120, 195, 255]]
+PLATFORM_COLOUR = [[110, 150, 115], [120, 250, 180]]
 
 class CameraVision:
     def __init__(self):
@@ -196,7 +196,6 @@ class CameraVision:
                         ((x_ball, y_ball), radius) = cv.minEnclosingCircle(largest_ball)
                         if radius > 10:
                             self.ball_position = (int(x_ball), int(y_ball))
-                            # print(f"Ball detected at position: {self.ball_position}")
 
                             if self.platform_center:
                                 x_inc, y_inc = self.positions[self.current_position_index]

@@ -26,7 +26,7 @@ class CameraVisionGUI:
             'golf': 0.04593,
             # NEED TO UPDATE THESE VALUES
             'baering': 0.057,
-            'pinpong': 0.624,
+            'pingpong': 0.0027,
         }
 
         self.controller = Controller(
@@ -168,6 +168,9 @@ class CameraVisionGUI:
         Receives desired servo angles from Controller and sends I2C commands.
         """
         desired_angles = [theta_1, theta_2, theta_3]
+        for i in range(3):
+            desired_angles[i] = 270 - desired_angles[i]
+            
         for i, desired_angle in enumerate(desired_angles, start=1):
             desired_angle = max(85, min(180, int(desired_angle)))
 
@@ -270,7 +273,7 @@ class CameraVisionGUI:
                 platform_center_x_px, platform_center_y_px = self.cv.platform_center
 
                 # normalize coordinates to (0, 0) at platform center
-                norm_x = ball_x_px - platform_center_x_px
+                norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
 
                 self.controller.set_ball_position(norm_x, norm_y)

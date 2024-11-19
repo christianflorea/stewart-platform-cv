@@ -133,6 +133,9 @@ class Controller:
             # Clamp PID outputs
             x_pid = 0.001 if x_pid == 0 else x_pid
             y_pid = 0.001 if y_pid == 0 else y_pid
+            
+            x_pid /= 1000
+            y_pid /= 1000
 
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
@@ -141,14 +144,19 @@ class Controller:
             V = np.sqrt(x_pid**2 + y_pid**2)
             theta_rad = np.arctan2(y_pid, x_pid)
             theta_deg = np.degrees(theta_rad)
+            
+            print("ball mass: ", ball_mass)
 
             # Calculate phi based on dynamics (assuming some relation)
             try:
+                if abs(((2 * V) / (ball_mass * self.g))) > 1:
+                    raise ValueError("invalid value encountered in arcsin")
                 phi_rad = np.arcsin((2 * V) / (ball_mass * self.g)) / 2
                 phi_deg = np.degrees(phi_rad)
                 phi_deg = np.clip(phi_deg, -15, 15)
-            except ValueError:
-                # Handle domain error if (2*V)/(m_ball*g) > 1
+            except ValueError as e:
+                print("Error with calculation of phi: ", e)
+                print("(2 * V) / (ball_mass * self.g) = ", ((2 * V) / (ball_mass * self.g)))
                 phi_deg = 15 if V > 0 else -15
 
             # Calculate velocity components
