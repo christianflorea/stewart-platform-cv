@@ -38,7 +38,7 @@ class CameraVisionGUI:
             ki=1.0,
             ball_mass=self.ball_mass_mapping['pingpong']
         )
-        self.controller_callback = self.send_servo_commands
+        self.controller_callback = self.send_servo_commands_bulk
         self.controller_thread = threading.Thread(target=self.controller.run, args=(self.controller_callback,), daemon=True)
         self.controller.active = False
 
@@ -162,6 +162,35 @@ class CameraVisionGUI:
         if self.controller.active:
             self.controller.active = False
             print("Path following stopped.")
+    
+    def send_servo_commands_bulk(self, theta_1, theta_2, theta_3):
+        """
+        Sends desired servo angles for all three servos in a single I2C command.
+        """
+        desired_angles = [theta_1, theta_2, theta_3]
+        processed_angles = []
+
+        for theta in desired_angles:
+            # Convert theta as per original code (270 - theta)
+            processed_theta = 270 - theta
+            # Clamp the angle between 85 and 180
+            processed_theta = max(90, min(180, int(processed_theta)))
+            processed_angles.append(processed_theta)
+
+        with self.servo_lock:
+            self.current_servo_positions = processed_angles.copy()
+
+        # Prepare the I2C message
+        try:
+            # Command identifier for bulk command
+            command_identifier = 0x10
+            # Combine command identifier and angles into a single list
+            i2c_data = [command_identifier] + processed_angles
+            # Write the data as a block
+            self.bus.write_i2c_block_data(self.arduino_addr, 0x00, i2c_data)
+            print(f"Bulk Command sent: Set Servos to {processed_angles} degrees.")
+        except Exception as e:
+            messagebox.showerror("I2C Communication Error", f"Error sending bulk command: {e}")
 
     def send_servo_commands(self, theta_1, theta_2, theta_3):
         """
