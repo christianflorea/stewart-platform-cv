@@ -22,9 +22,9 @@ class CameraVision:
 
         # Ball color range (HSV)
         self.ball_colors = {
-            "pingpong": [[11, 120, 160], [20, 200, 240]],
+            "pingpong": [[16, 90, 160], [24, 170, 230]],
             "bearing": [[0, 0, 0], [179, 255, 50]],
-            "golf": [[40, 10, 150], [80, 100, 250]],
+            "golf": [[40, 10, 150], [100, 100, 255]],
         }
         self.ball_type = "pingpong"  # Default ball type
         self.ball_lower = np.array(self.ball_colors[self.ball_type][0])

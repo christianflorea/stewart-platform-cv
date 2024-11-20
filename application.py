@@ -26,7 +26,7 @@ class CameraVisionGUI:
         self.arduino_addr = 0x8
         self.initialize_i2c()
 
-        self.current_servo_positions = [135, 135, 135]  # starting positions
+        self.current_servo_positions = [110, 110, 110]  # starting positions
 
         self.ball_mass_mapping = {
             'golf': 0.04593,
@@ -34,18 +34,21 @@ class CameraVisionGUI:
             'pingpong': 0.0027,
         }
 
-        self.ki = 0.0005
-        self.kd = 0.5
-        self.kp = 0.005
-        self.s = 0.6
+        self.kp = 0.12
+        self.kd = 0.06
+        self.ki = 0.004
+        self.s = 0.5
+        self.controller_step = 0.01
+        
+        self.pid_history = []
 
         self.controller = Controller(
-            delay=0.075, 
+            delay=0.1, 
             kp=self.kp,
             kd=self.kd,
             ki=self.ki,
             s=self.s,
-            ball_mass=self.ball_mass_mapping['pingpong']
+            ball_mass=self.ball_mass_mapping['pingpong'],
         )
         self.controller_callback = self.send_servo_commands
         self.controller_thread = threading.Thread(target=self.controller.run, args=(self.controller_callback,), daemon=True)
@@ -95,8 +98,8 @@ class CameraVisionGUI:
         Kp_buttons_frame = ttk.Frame(Kp_controller_frame)
         Kp_buttons_frame.pack(fill="x", pady=(0, 5))
         
-        ttk.Button(Kp_buttons_frame, text="▲", command=lambda: self.change_value(PID.KP, 0.001)).pack(side="left", expand=True, fill="x", padx=(0, 2))
-        ttk.Button(Kp_buttons_frame, text="▼", command=lambda: self.change_value(PID.KP, -0.001)).pack(side="right", expand=True, fill="x", padx=(2, 0))
+        ttk.Button(Kp_buttons_frame, text="▲", command=lambda: self.change_value(PID.KP, self.controller_step)).pack(side="left", expand=True, fill="x", padx=(0, 2))
+        ttk.Button(Kp_buttons_frame, text="▼", command=lambda: self.change_value(PID.KP, -self.controller_step)).pack(side="right", expand=True, fill="x", padx=(2, 0))
 
         # Ki Controller
         Ki_controller_frame = ttk.LabelFrame(pid_panel, text="Ki", padding=10)
@@ -108,8 +111,8 @@ class CameraVisionGUI:
         Ki_buttons_frame = ttk.Frame(Ki_controller_frame)
         Ki_buttons_frame.pack(fill="x", pady=(0, 5))
         
-        ttk.Button(Ki_buttons_frame, text="▲", command=lambda: self.change_value(PID.KI, 0.0001)).pack(side="left", expand=True, fill="x", padx=(0, 2))
-        ttk.Button(Ki_buttons_frame, text="▼", command=lambda: self.change_value(PID.KI, -0.0001)).pack(side="right", expand=True, fill="x", padx=(2, 0))
+        ttk.Button(Ki_buttons_frame, text="▲", command=lambda: self.change_value(PID.KI, self.controller_step / 10)).pack(side="left", expand=True, fill="x", padx=(0, 2))
+        ttk.Button(Ki_buttons_frame, text="▼", command=lambda: self.change_value(PID.KI, -self.controller_step / 10)).pack(side="right", expand=True, fill="x", padx=(2, 0))
 
         # Kd Controller
         Kd_controller_frame = ttk.LabelFrame(pid_panel, text="Kd", padding=10)
@@ -121,8 +124,8 @@ class CameraVisionGUI:
         Kd_buttons_frame = ttk.Frame(Kd_controller_frame)
         Kd_buttons_frame.pack(fill="x", pady=(0, 5))
         
-        ttk.Button(Kd_buttons_frame, text="▲", command=lambda: self.change_value(PID.KD, 0.1)).pack(side="left", expand=True, fill="x", padx=(0, 2))
-        ttk.Button(Kd_buttons_frame, text="▼", command=lambda: self.change_value(PID.KD, -0.1)).pack(side="right", expand=True, fill="x", padx=(2, 0))
+        ttk.Button(Kd_buttons_frame, text="▲", command=lambda: self.change_value(PID.KD, self.controller_step)).pack(side="left", expand=True, fill="x", padx=(0, 2))
+        ttk.Button(Kd_buttons_frame, text="▼", command=lambda: self.change_value(PID.KD, -self.controller_step)).pack(side="right", expand=True, fill="x", padx=(2, 0))
 
         # Control panel (right column)
         self.control_panel = ttk.Frame(self.root, padding=10)
@@ -184,23 +187,34 @@ class CameraVisionGUI:
         self.ball_position_text = tk.Text(ball_position_frame, height=1, width=20)
         self.ball_position_text.pack(fill="x", pady=5)
         self.ball_position_text.insert("1.0", "No data")  # Default text
+        
+        # Servo Control
+        self.servo_frame = tk.LabelFrame(self.control_panel, text="Servo Controls", padx=10, pady=10)
+        self.servo_frame.pack(fill="x", pady=10)
+        self.create_servo_controls()
 
 
     def initialize_platform(self):
         """
         Home, update platform center, start detection, and reset the controller.
         """
+        
+        self.stop_detection()
+        time.sleep(0.1)
         self.home_all_servos()
-        time.sleep(1)
+        time.sleep(3)
         self.update_platform_center()
         self.cv.start_detection()
 
         # Reset the existing controller with updated parameters
+        
+        self.controller.reset()
         self.controller.set_kp(self.kp)
         self.controller.set_ki(self.ki)
         self.controller.set_kd(self.kd)
         self.controller.set_ball_mass(self.ball_mass_mapping['pingpong'])
-        self.controller.reset()
+        
+        self.toggle_controller_following()
 
         print("Platform initialized with updated controller parameters.")
 
@@ -226,18 +240,19 @@ class CameraVisionGUI:
         desired_angles = [theta_1, theta_2, theta_3]
         for i in range(3):
             desired_angles[i] = 270 - desired_angles[i]
+            print('angles: ', desired_angles)
             desired_angles[i] = max(90, min(180, int(desired_angles[i])))
             with self.servo_lock:
                 self.current_servo_positions[i] = desired_angles[i]
         
-        print(f"Sending bulk servo angles: {desired_angles}")
+#         print(f"Sending bulk servo angles: {desired_angles}")
 
         # Send I2C command
         if self.bus:
             try:
                 self.bus.write_i2c_block_data(self.arduino_addr, 4, [a for a in desired_angles])
                 end_time = time.time()
-                print(f"I2C command took {end_time - start_time} seconds.")
+#                 print(f"I2C command took {end_time - start_time} seconds.")
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
         else:
@@ -271,11 +286,15 @@ class CameraVisionGUI:
                 self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
                 print("Homing command sent.")
 
-                self.current_servo_positions = [135, 135, 135]
+                self.current_servo_positions = [145, 145, 145]
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending homing command: {e}")
         else:
             messagebox.showwarning("I2C Bus Not Initialized", "I2C bus is not initialized.")
+            
+    def stop_detection(self):
+        self.controller.active = False
+        self.cv.stop_detection()
     
     def toggle_controller_following(self):
         if not self.controller.active:
@@ -348,6 +367,28 @@ class CameraVisionGUI:
         # Get the latest frame from CV
         frame = self.cv.get_frame()
         if frame is not None:
+            # Retrieve x_pid and y_pid from the controller
+            x_pid, y_pid = self.controller.get_pid()
+
+            # Define a scale factor for plotting (adjust as needed)
+            scale = 24200/25  # Pixels per unit, adjust based on your application's scale
+
+            # Determine the center of the platform in pixels
+            if self.cv.platform_center:
+                center_x, center_y = self.cv.platform_center
+            else:
+                center_x, center_y = self.cv.frame_width // 2, self.cv.frame_height // 2  # Default center
+
+            # Map PID values to pixel positions
+            plot_x = int(center_x - x_pid * scale)
+            plot_y = int(center_y + y_pid * scale)  # Invert y-axis for image coordinates
+
+            # Draw a circle representing the PID position
+            cv.circle(frame, (plot_x, plot_y), 10, (0, 255, 255), -1)  # Yellow dot
+
+            # Optionally, draw a line from center to PID position
+            cv.line(frame, (center_x, center_y), (plot_x, plot_y), (0, 255, 255), 2)
+            
             frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
             img = Image.fromarray(frame)
             imgtk = ImageTk.PhotoImage(image=img)

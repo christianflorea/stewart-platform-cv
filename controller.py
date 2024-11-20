@@ -18,6 +18,8 @@ class Controller:
     def __init__(self, *args, **kwargs):
         self._init_params = (args, kwargs)
         self._initialize(*args, **kwargs)
+        self.x_pid = 0
+        self.y_pid = 0
 
     def _initialize(self,delay=0.05, kp=1.0, kd=1.0, ki=1.0, s=0.7, ball_mass=0.05):
         self.delay = delay
@@ -42,7 +44,11 @@ class Controller:
 
         # Constants
         self.g = 9.81  # Acceleration due to gravity (m/s^2)
-        self.MAX_PID = 0.10206  # Maximum PID output
+        self.MAX_PID = 0.10206 * 1.5 # Maximum PID output
+        
+        self.theta_avg_1 = []
+        self.theta_avg_2 = []
+        self.theta_avg_3 = []
 
         # Storage for results
         self.results = {
@@ -60,6 +66,9 @@ class Controller:
         self.active = False
 
         self.lock = threading.Lock()
+    
+    def get_pid(self):
+        return (self.x_pid, self.y_pid)
     
     def is_active(self):
         """
@@ -112,9 +121,13 @@ class Controller:
 #         print("------------------------------------------")
         self.active = True
         start_time = time.perf_counter()
+        testing_tool = 0
+        arr_1 = []
+        arr_2 = []
 
         while self.active:
             s_t = time.time()
+#             print(self.ki, self.kp, self.kd)
             with self.lock:
                 # Current position of the ball
                 x_ball = self.x_ball / 1000
@@ -171,6 +184,22 @@ class Controller:
 
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
+#             
+#             print(f"POS - x: {round(x_ball, 4)}, y: {round(y_ball, 4)}")
+#             print(f"PID - x: {round(x_pid, 4)}, y: {round(y_pid, 4)}")
+            
+            with self.lock:
+                self.x_pid = x_pid
+                self.y_pid = y_pid
+                        
+#             if testing_tool < 350:
+#                 testing_tool += 1
+#                 arr_1.append(x_ball)
+#                 arr_2.append(x_pid)
+#             else:
+#                 print(arr_1)
+#                 print(arr_2)
+#                 break
             
 #             print("x pos: ", x_ball)
 #             print("y pos: ", y_ball)
@@ -354,8 +383,24 @@ class Controller:
             self.results['theta_1'].append(theta_1)
             self.results['theta_2'].append(theta_2)
             self.results['theta_3'].append(theta_3)
+            
+            if len(self.theta_avg_1) > 3:
+                self.theta_avg_1.pop(0)
+                self.theta_avg_2.pop(0)
+                self.theta_avg_3.pop(0)
+            
+            self.theta_avg_1.append(theta_1)
+            self.theta_avg_2.append(theta_2)
+            self.theta_avg_3.append(theta_3)
+            
+            theta_calc = [theta_1, theta_2, theta_3]
+            
+#             if len(self.theta_avg_1) == 3:
+#                 theta_calc[0]= 0.1 *  self.theta_avg_1[0] + 0.2 *  self.theta_avg_1[1] + 0.7 *  self.theta_avg_1[2]
+#                 theta_calc[1] = 0.1 *  self.theta_avg_2[0] + 0.2 *  self.theta_avg_2[1] + 0.7 *  self.theta_avg_2[2]
+#                 theta_calc[2] = 0.1 *  self.theta_avg_3[0] + 0.2 *  self.theta_avg_3[1] + 0.7 *  self.theta_avg_3[2]
 
-            callback(theta_1, theta_2, theta_3)
+            callback(theta_calc[0], theta_calc[1], theta_calc[2])
             
 #             print(f"x: {round(x1, 3)}, {round(x2, 3)}, {round(x3, 3)}")
 #             print(f"y: {round(y1, 3)}, {round(y2, 3)}, {round(y3, 3)}")
@@ -374,8 +419,10 @@ class Controller:
 #             print("-" * 40)
             
             e_t = time.time()
-            print(f"Calc took {e_t - s_t} seconds.")
-            time.sleep(self.delay)
+            delay = self.delay
+#             if x_ball * x_pid < 0 and y_ball * y_pid < 0:
+#                 delay *= 1.5
+            time.sleep(delay)
 
     def get_results(self):
         """
