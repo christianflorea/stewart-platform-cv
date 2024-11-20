@@ -27,6 +27,7 @@ const int limitSwitchPins[3] = {2, 3, 4};
 // Current positions and minimum positions
 int positions[3] = {170, 170, 170};
 int minPositions[3] = {ABSOLUTE_MIN, ABSOLUTE_MIN, ABSOLUTE_MIN};
+int SERVO_OFFSETS[3] = {0, -1, 4};
 
 // Flags and variables
 volatile bool commandReceived = false;
@@ -121,6 +122,7 @@ void loop() {
           // Set initial positions to 110
           for (int i = 0; i < 3; i++) {
             positions[i] = 110;
+            minPositions[i] = ABSOLUTE_MIN;
             servos[i]->write(positions[i]);
           }
           homingState = HOMING_MOVE_DOWN;
@@ -130,17 +132,17 @@ void loop() {
           // Move servos down until limit switches are hit
           bool allLimitSwitchesActivated = true;
           for (int i = 0; i < 3; i++) {
+            // delay(100);
             if (!limitSwitchActivated[i]) {
               if (digitalRead(limitSwitchPins[i]) == HIGH) {
                 // Move down by 1 step
                 positions[i] -= 1;
-                if (positions[i] < minPositions[i]) positions[i] = minPositions[i];
+                if (positions[i] < minPositions[i] - SERVO_OFFSETS[i]) positions[i] = minPositions[i];
                 servos[i]->write(positions[i]);
                 allLimitSwitchesActivated = false;
               } else {
                 limitSwitchActivated[i] = true;
-                minPositions[i] = positions[i];
-                // You can uncomment the following line for debugging
+                minPositions[i] = positions[i] + SERVO_OFFSETS[i];
                 Serial.println("Limit switch activated for servo " + String(i+1));
                 Serial.println("At position " + String(positions[i]));
               }
@@ -156,7 +158,7 @@ void loop() {
           // Move servos up by 10 degrees to release limit switches
           for (int i = 0; i < 3; i++) {
             if (limitSwitchActivated[i]) {
-              positions[i] = minPositions[i] += 10;
+              positions[i] = minPositions[i] + 10;
               if (positions[i] > MAX_POSITION) positions[i] = MAX_POSITION;
               servos[i]->write(positions[i]);
             }
@@ -272,7 +274,7 @@ void setServoPosition(byte servoNumber, int angle) {
   int index = servoNumber - 1;
 
   // Ensure angle is within safe limits
-  angle = constrain(angle, minPositions[index], MAX_POSITION);
+  angle = constrain(angle, minPositions[index] + 30, MAX_POSITION);
 
   positions[index] = angle;
 
