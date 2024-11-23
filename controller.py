@@ -140,7 +140,11 @@ class Controller:
             # Calculate errors
             error_x = x_goal + x_ball
             error_y = y_goal + y_ball
-
+            
+#             if 0 < (error_x**2 + error_y**2)**(1/2) < 0.02:
+#                 error_x = 0
+#                 error_y = 0
+            
             # Time management
             current_time = time.perf_counter()
             if hasattr(self, 'last_time'):
@@ -167,9 +171,12 @@ class Controller:
                 kd = self.kd
                 ki = self.ki
                 ball_mass = self.ball_mass
+            
+            kp_mult_x = derivative_x if abs(derivative_x) > 0.01 else 1
+            kp_mult_y = derivative_y if abs(derivative_y) > 0.01 else 1
 
-            x_pid = (kp * error_x) + (kd * derivative_x) + (ki * self.integral_x)
-            y_pid = (kp * error_y) + (kd * derivative_y) + (ki * self.integral_y)
+            x_pid = (kp * error_x * kp_mult_x) + (kd * derivative_x) + (ki * self.integral_x)
+            y_pid = (kp * error_y * kp_mult_y) + (kd * derivative_y) + (ki * self.integral_y)
 
             # Update last errors
             self.error_x_last = error_x
