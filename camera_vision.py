@@ -3,7 +3,7 @@ import numpy as np
 import time
 import threading
 
-PLATFORM_COLOUR = [[110, 140, 80], [120, 255, 180]]
+PLATFORM_COLOUR = [[108, 70, 75], [118, 220, 165]]
 
 class CameraVision:
     def __init__(self):
@@ -22,11 +22,11 @@ class CameraVision:
 
         # Ball color range (HSV)
         self.ball_colors = {
-            "pingpong": [[16, 90, 160], [24, 170, 230]],
+            "pingpong": [[17, 110, 170], [28, 165, 255]],
             "bearing": [[0, 0, 0], [179, 255, 50]],
             "golf": [[40, 10, 150], [100, 100, 255]],
         }
-        self.ball_type = "pingpong"  # Default ball type
+        self.ball_type = "golf"  # Default ball type
         self.ball_lower = np.array(self.ball_colors[self.ball_type][0])
         self.ball_upper = np.array(self.ball_colors[self.ball_type][1])
 
@@ -204,7 +204,7 @@ class CameraVision:
                                 x_target = self.platform_center[0] + x_inc
                                 y_target = self.platform_center[1] + y_inc
 
-                                if abs(x_ball - x_target) <= 5 and abs(y_ball - y_target) <= 5:
+                                if abs(x_ball - x_target) <= 10 and abs(y_ball - y_target) <= 10:
                                     print(f"Ball reached position ({int(x_target)}, {int(y_target)})")
                                     self.current_position_index = (
                                         self.current_position_index + 1) % len(self.positions)
