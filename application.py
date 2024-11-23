@@ -34,21 +34,22 @@ class CameraVisionGUI:
             'pingpong': 0.0027,
         }
 
-        self.kp = 0.12
-        self.kd = 0.06
-        self.ki = 0.004
-        self.s = 0.5
+        self.kp = 0.24
+        self.kd = 0.11
+        self.ki = 0.001
+        self.s = 0.42
         self.controller_step = 0.01
         
         self.pid_history = []
+        self.servo_command_idx = 0
 
         self.controller = Controller(
-            delay=0.1, 
+            delay=0.08, 
             kp=self.kp,
             kd=self.kd,
             ki=self.ki,
             s=self.s,
-            ball_mass=self.ball_mass_mapping['pingpong'],
+            ball_mass=self.ball_mass_mapping['golf'],
         )
         self.controller_callback = self.send_servo_commands
         self.controller_thread = threading.Thread(target=self.controller.run, args=(self.controller_callback,), daemon=True)
@@ -202,8 +203,7 @@ class CameraVisionGUI:
         self.stop_detection()
         time.sleep(0.1)
         self.home_all_servos()
-        time.sleep(3)
-        self.update_platform_center()
+        time.sleep(2)
         self.cv.start_detection()
 
         # Reset the existing controller with updated parameters
@@ -212,8 +212,9 @@ class CameraVisionGUI:
         self.controller.set_kp(self.kp)
         self.controller.set_ki(self.ki)
         self.controller.set_kd(self.kd)
-        self.controller.set_ball_mass(self.ball_mass_mapping['pingpong'])
+        self.controller.set_ball_mass(self.ball_mass_mapping['golf'])
         
+        self.update_platform_center()
         self.toggle_controller_following()
 
         print("Platform initialized with updated controller parameters.")
@@ -236,7 +237,11 @@ class CameraVisionGUI:
         Receives desired servo angles from Controller and sends I2C commands.
         """
         start_time = time.time()
-
+        self.servo_command_idx = (self.servo_command_idx + 1) % 1
+        
+        if self.servo_command_idx:
+            return
+        
         desired_angles = [theta_1, theta_2, theta_3]
         for i in range(3):
             desired_angles[i] = 270 - desired_angles[i]
