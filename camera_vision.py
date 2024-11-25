@@ -37,6 +37,7 @@ class CameraVision:
         }
         self.program_type = 'center'
         self.positions = self.program_positions[self.program_type]
+        self.current_target_position = None
 
         self.platform_circle_center = (0, 0)
         self.platform_circle_radius = 0
@@ -253,6 +254,9 @@ class CameraVision:
                     x_inc, y_inc = self.positions[self.current_position_index]
                     x_target = self.platform_center[0] + x_inc
                     y_target = self.platform_center[1] + y_inc
+
+                    self.current_target_position = (int(x_target), int(y_target))
+
                     cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)  # Blue target
                     cv.putText(frame, f"Target: ({int(x_target)}, {int(y_target)})", (10, 30),
                             cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)

@@ -404,10 +404,10 @@ class CameraVisionGUI:
                 ball_x_px, ball_y_px = self.cv.ball_position
                 platform_center_x_px, platform_center_y_px = self.cv.platform_center
 
-                # normalize coordinates to (0, 0) at platform center
+                # Normalize coordinates to (0, 0) at platform center
                 norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
-                
+
                 norm_x = norm_x * round(250/242, 3)
                 norm_y = norm_y * round(250/242, 3)
 
@@ -419,8 +419,22 @@ class CameraVisionGUI:
                 self.ball_position_text.delete('1.0', tk.END)
                 self.ball_position_text.insert(tk.END, "Ball not detected")
 
-        # Next frame update in 15 ms
-        self.root.after(15, self.update_frame)
+            # Update controller's goal position
+            if self.cv.current_target_position and self.cv.platform_center:
+                target_x_px, target_y_px = self.cv.current_target_position
+                platform_center_x_px, platform_center_y_px = self.cv.platform_center
+
+                # Normalize coordinates to (0, 0) at platform center
+                norm_x_goal = platform_center_x_px - target_x_px
+                norm_y_goal = target_y_px - platform_center_y_px
+
+                norm_x_goal = norm_x_goal * round(250/242, 3)
+                norm_y_goal = norm_y_goal * round(250/242, 3)
+
+                self.controller.set_goal_position(norm_x_goal, norm_y_goal)
+            
+            # Next frame update in 15 ms
+            self.root.after(15, self.update_frame)
 
     def on_closing(self):
         self.cv.release()
