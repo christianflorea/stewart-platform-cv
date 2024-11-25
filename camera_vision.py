@@ -5,9 +5,9 @@ import threading
 
 PLATFORM_COLOUR = [[108, 70, 75], [118, 220, 165]]
 
+
 class CameraVision:
     def __init__(self):
-        # initialize OpenCV
         self.cap = cv.VideoCapture(0)
         self.cap.set(cv.CAP_PROP_FPS, 30)
         ret, frame = self.cap.read()
@@ -20,7 +20,6 @@ class CameraVision:
         self.ball_position = None
         self.platform_center = None
 
-        # Ball color range (HSV)
         self.ball_colors = {
             "pingpong": [[17, 110, 170], [28, 165, 255]],
             "bearing": [[0, 0, 0], [179, 255, 50]],
@@ -35,13 +34,9 @@ class CameraVision:
             'center': [(0, 0)],
             'line': [(0, 50), (0, -50)],
             'square': [(50, 50), (50, -50), (-50, -50), (-50, 50)],
-            'triangle': [
-                (0, 60),
-                (52, -30),
-                (-52, -30)
-            ],
+            'triangle': [(0, 60), (52, -30), (-52, -30)],
             'circle': [
-                (50, 0), (35, 35), (0, 50), (-35, 35), 
+                (50, 0), (35, 35), (0, 50), (-35, 35),
                 (-50, 0), (-35, -35), (0, -50), (35, -35),
                 (50, -10), (40, 30), (10, 50), (-40, 30),
                 (-50, -10), (-40, -30), (-10, -50), (40, -30)
@@ -63,7 +58,6 @@ class CameraVision:
         self.show_platform_contour = True
         self.show_ball_contour = True
 
-        # contours
         self.platform_contour = None
         self.ball_contour = None
 
@@ -125,7 +119,7 @@ class CameraVision:
             cy = int(M["m01"] / M["m00"])
         else:
             cx, cy = 0, 0
-        return (cx, cy)
+        return cx, cy
 
     def update_platform_center(self):
         with self.lock:
@@ -152,7 +146,7 @@ class CameraVision:
                 self.platform_center = self.detect_platform_center(largest_platform)
                 print(f"Platform center updated: {self.platform_center}")
 
-                # Calculate minimum enclosing circle
+                # calculate minimum enclosing circle
                 (x, y), radius = cv.minEnclosingCircle(largest_platform)
                 self.platform_circle_center = (int(x), int(y))
                 self.platform_circle_radius = int(radius)
@@ -162,7 +156,6 @@ class CameraVision:
             else:
                 self.platform_contour = None
                 self.platform_center = None
-                # Reset enclosing circle properties
                 self.platform_circle_center = (0, 0)
                 self.platform_circle_radius = 0
                 self.show_platform_circle = False
@@ -170,7 +163,7 @@ class CameraVision:
 
     def is_detecting(self):
         return self.detecting
-    
+
     def start_detection(self):
         if not self.detecting:
             self.detecting = True
@@ -242,25 +235,27 @@ class CameraVision:
 
                 # Draw platform contour
                 if self.show_platform_contour and self.platform_contour is not None:
-                    cv.drawContours(frame, [self.platform_contour], -1, (255, 0, 0), 2)  # Blue contour
+                    cv.drawContours(frame, [self.platform_contour], -1, (255, 0, 0), 2)
 
                 # Draw platform center
                 if self.platform_center:
-                    cv.circle(frame, self.platform_center, 5, (0, 255, 0), -1)  # Green center
-                    cv.putText(frame, f"Center: {self.platform_center}", 
-                            (self.platform_center[0] + 10, self.platform_center[1]),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    cv.circle(frame, self.platform_center, 5, (0, 255, 0), -1)
+                    cv.putText(
+                        frame, f"Center: {self.platform_center}",
+                        (self.platform_center[0] + 10, self.platform_center[1]),
+                        cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
                 # Draw ball contour
                 if self.show_ball_contour and self.ball_contour is not None:
-                    cv.drawContours(frame, [self.ball_contour], -1, (0, 165, 255), 2)  # Orange contour
+                    cv.drawContours(frame, [self.ball_contour], -1, (0, 165, 255), 2)
 
                 # Draw ball position
                 if self.ball_position:
-                    cv.circle(frame, self.ball_position, 5, (0, 0, 255), -1)  # Red ball
-                    cv.putText(frame, f"Ball: {self.ball_position}", 
-                            (self.ball_position[0] + 10, self.ball_position[1]),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                    cv.circle(frame, self.ball_position, 5, (0, 0, 255), -1)
+                    cv.putText(
+                        frame, f"Ball: {self.ball_position}",
+                        (self.ball_position[0] + 10, self.ball_position[1]),
+                        cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
                 # Draw target position
                 if self.platform_center and self.positions:
@@ -270,18 +265,19 @@ class CameraVision:
 
                     self.current_target_position = (int(x_target), int(y_target))
 
-                    cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)  # Blue target
-                    cv.putText(frame, f"Target: ({int(x_target)}, {int(y_target)})", (10, 30),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)
+                    cv.putText(
+                        frame, f"Target: ({int(x_target)}, {int(y_target)})", (10, 30),
+                        cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
                 # Draw platform enclosing circle
                 if self.show_platform_circle:
-                    cv.circle(frame, self.platform_circle_center, self.platform_circle_radius, (0, 0, 255), 2)  # Red circle
-                    # Display the radius value near the circle
-                    cv.putText(frame, f"Radius: {self.platform_circle_radius} px", 
-                            (self.platform_circle_center[0] + self.platform_circle_radius + 10, 
-                                self.platform_circle_center[1]),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                    cv.circle(frame, self.platform_circle_center, self.platform_circle_radius, (0, 0, 255), 2)
+                    cv.putText(
+                        frame, f"Radius: {self.platform_circle_radius} px",
+                        (self.platform_circle_center[0] + self.platform_circle_radius + 10,
+                         self.platform_circle_center[1]),
+                        cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
                 return frame
             else:
