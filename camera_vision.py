@@ -33,8 +33,21 @@ class CameraVision:
         # Program positions - offsets from center
         self.program_positions = {
             'center': [(0, 0)],
+            'line': [(0, 50), (0, -50)],
             'square': [(50, 50), (50, -50), (-50, -50), (-50, 50)],
+            'triangle': [
+                (0, 60),
+                (52, -30),
+                (-52, -30)
+            ],
+            'circle': [
+                (50, 0), (35, 35), (0, 50), (-35, 35), 
+                (-50, 0), (-35, -35), (0, -50), (35, -35),
+                (50, -10), (40, 30), (10, 50), (-40, 30),
+                (-50, -10), (-40, -30), (-10, -50), (40, -30)
+            ]
         }
+
         self.program_type = 'center'
         self.positions = self.program_positions[self.program_type]
         self.current_target_position = None
