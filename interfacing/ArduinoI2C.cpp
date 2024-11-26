@@ -19,7 +19,7 @@ Servo servo3;
 Servo* servos[3] = {&servo1, &servo2, &servo3};
 
 // Servo pins
-const int servoPins[3] = {5, 7, 6};
+const int servoPins[3] = {5, 6, 9};
 
 // Limit switch pins
 const int limitSwitchPins[3] = {2, 3, 4};
@@ -27,7 +27,7 @@ const int limitSwitchPins[3] = {2, 3, 4};
 // Current positions and minimum positions
 int positions[3] = {170, 170, 170};
 int minPositions[3] = {ABSOLUTE_MIN, ABSOLUTE_MIN, ABSOLUTE_MIN};
-int SERVO_OFFSETS[3] = {0, -1, 4};
+int SERVO_OFFSETS[3] = {0, -1, 5};
 
 // Flags and variables
 volatile bool commandReceived = false;
