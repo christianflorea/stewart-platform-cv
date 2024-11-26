@@ -19,7 +19,7 @@ Servo servo3;
 Servo* servos[3] = {&servo1, &servo2, &servo3};
 
 // Servo pins
-const int servoPins[3] = {5, 7, 6};
+const int servoPins[3] = {5, 6, 9};
 
 // Limit switch pins
 const int limitSwitchPins[3] = {2, 3, 4};
@@ -27,7 +27,7 @@ const int limitSwitchPins[3] = {2, 3, 4};
 // Current positions and minimum positions
 int positions[3] = {170, 170, 170};
 int minPositions[3] = {ABSOLUTE_MIN, ABSOLUTE_MIN, ABSOLUTE_MIN};
-int SERVO_OFFSETS[3] = {0, -1, 4};
+int SERVO_OFFSETS[3] = {0, -1, 5};
 
 // Flags and variables
 volatile bool commandReceived = false;
@@ -143,6 +143,12 @@ void loop() {
               } else {
                 limitSwitchActivated[i] = true;
                 minPositions[i] = positions[i] + SERVO_OFFSETS[i];
+                // if (i == 0) {
+                //   minPositions[i] += 1;
+                // } else if (i == 2) {
+                //   minPositions[i] += 1;
+                // }
+                // You can uncomment the following line for debugging
                 Serial.println("Limit switch activated for servo " + String(i+1));
                 Serial.println("At position " + String(positions[i]));
               }
