@@ -37,14 +37,14 @@ class CameraVisionGUI:
         self.kp = 0.24
         self.kd = 0.11
         self.ki = 0.001
-        self.s = 0.42
+        self.s = 0.41
         self.controller_step = 0.01
         
         self.pid_history = []
         self.servo_command_idx = 0
 
         self.controller = Controller(
-            delay=0.08, 
+            delay=0.07, 
             kp=self.kp,
             kd=self.kd,
             ki=self.ki,
@@ -245,12 +245,12 @@ class CameraVisionGUI:
         desired_angles = [theta_1, theta_2, theta_3]
         for i in range(3):
             desired_angles[i] = 270 - desired_angles[i]
-            print('angles: ', desired_angles)
-            desired_angles[i] = max(90, min(180, int(desired_angles[i])))
+#             print('angles: ', desired_angles)
+            desired_angles[i] = max(105, min(180, int(desired_angles[i])))
             with self.servo_lock:
                 self.current_servo_positions[i] = desired_angles[i]
         
-#         print(f"Sending bulk servo angles: {desired_angles}")
+#         print(f"Sending bulk serv+o angles: {desired_angles}")
 
         # Send I2C command
         if self.bus:
@@ -404,14 +404,16 @@ class CameraVisionGUI:
                 ball_x_px, ball_y_px = self.cv.ball_position
                 platform_center_x_px, platform_center_y_px = self.cv.platform_center
 
-                # Normalize coordinates to (0, 0) at platform center
+                # normalize coordinates to (0, 0) at platform center
                 norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
-
+                
                 norm_x = norm_x * round(250/242, 3)
                 norm_y = norm_y * round(250/242, 3)
 
                 self.controller.set_ball_position(norm_x, norm_y)
+                goal_x, goal_y = self.cv.program_positions[self.cv.program_type][self.cv.current_position_index]
+                self.controller.set_goal_position(goal_x, -goal_y)
 
                 self.ball_position_text.delete('1.0', tk.END)
                 self.ball_position_text.insert(tk.END, f"({norm_x}, {norm_y})")
@@ -419,22 +421,8 @@ class CameraVisionGUI:
                 self.ball_position_text.delete('1.0', tk.END)
                 self.ball_position_text.insert(tk.END, "Ball not detected")
 
-            # Update controller's goal position
-            if self.cv.current_target_position and self.cv.platform_center:
-                target_x_px, target_y_px = self.cv.current_target_position
-                platform_center_x_px, platform_center_y_px = self.cv.platform_center
-
-                # Normalize coordinates to (0, 0) at platform center
-                norm_x_goal = platform_center_x_px - target_x_px
-                norm_y_goal = target_y_px - platform_center_y_px
-
-                norm_x_goal = norm_x_goal * round(250/242, 3)
-                norm_y_goal = norm_y_goal * round(250/242, 3)
-
-                self.controller.set_goal_position(norm_x_goal, norm_y_goal)
-            
-            # Next frame update in 15 ms
-            self.root.after(15, self.update_frame)
+        # Next frame update in 15 ms
+        self.root.after(15, self.update_frame)
 
     def on_closing(self):
         self.cv.release()
