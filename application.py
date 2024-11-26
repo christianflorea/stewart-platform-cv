@@ -9,7 +9,10 @@ from controller import Controller
 import time
 from enum import Enum
 
-# emum for kp, ki, kd
+GOLF_BALL_MASS = 0.04593
+PINGPONG_BALL_MASS = 0.0027
+PX_PER_MM = 24200/25
+
 class PID(Enum):
     KP = "KP"
     KI = "KI"
@@ -26,12 +29,11 @@ class CameraVisionGUI:
         self.arduino_addr = 0x8
         self.initialize_i2c()
 
-        self.current_servo_positions = [110, 110, 110]  # starting positions
+        self.current_servo_positions = [110, 110, 110]
 
         self.ball_mass_mapping = {
-            'golf': 0.04593,
-            'bearing': 0.057,
-            'pingpong': 0.0027,
+            'golf': GOLF_BALL_MASS,
+            'pingpong': PINGPONG_BALL_MASS,
         }
 
         self.kp = 0.24
@@ -39,9 +41,6 @@ class CameraVisionGUI:
         self.ki = 0.001
         self.s = 0.41
         self.controller_step = 0.01
-        
-        self.pid_history = []
-        self.servo_command_idx = 0
 
         self.controller = Controller(
             delay=0.07, 
@@ -62,14 +61,13 @@ class CameraVisionGUI:
 
     def initialize_i2c(self):
         try:
-            self.bus = SMBus(1)  # Use /dev/i2c-1
+            self.bus = SMBus(1)
             print("I2C bus initialized.")
         except Exception as e:
             messagebox.showerror("I2C Communication Error", f"Could not initialize I2C bus: {e}")
             self.bus = None
 
     def create_widgets(self):
-        # Configure the grid layout for the root window
         self.root.grid_rowconfigure(0, weight=2)  # Video display row
         self.root.grid_rowconfigure(1, weight=1)  # PID controls row
         self.root.grid_columnconfigure(0, weight=2)  # Video panel column
@@ -196,18 +194,12 @@ class CameraVisionGUI:
 
 
     def initialize_platform(self):
-        """
-        Home, update platform center, start detection, and reset the controller.
-        """
-        
         self.stop_detection()
         time.sleep(0.1)
         self.home_all_servos()
         time.sleep(2)
         self.cv.start_detection()
 
-        # Reset the existing controller with updated parameters
-        
         self.controller.reset()
         self.controller.set_kp(self.kp)
         self.controller.set_ki(self.ki)
@@ -233,31 +225,17 @@ class CameraVisionGUI:
             down_button.grid(row=1, column=1, padx=5, pady=2)
 
     def send_servo_commands(self, theta_1, theta_2, theta_3):
-        """
-        Receives desired servo angles from Controller and sends I2C commands.
-        """
-        start_time = time.time()
-        self.servo_command_idx = (self.servo_command_idx + 1) % 1
-        
-        if self.servo_command_idx:
-            return
-        
         desired_angles = [theta_1, theta_2, theta_3]
         for i in range(3):
             desired_angles[i] = 270 - desired_angles[i]
-#             print('angles: ', desired_angles)
             desired_angles[i] = max(105, min(180, int(desired_angles[i])))
             with self.servo_lock:
                 self.current_servo_positions[i] = desired_angles[i]
         
-#         print(f"Sending bulk serv+o angles: {desired_angles}")
-
         # Send I2C command
         if self.bus:
             try:
                 self.bus.write_i2c_block_data(self.arduino_addr, 4, [a for a in desired_angles])
-                end_time = time.time()
-#                 print(f"I2C command took {end_time - start_time} seconds.")
             except Exception as e:
                 messagebox.showerror("I2C Communication Error", f"Error sending command: {e}")
         else:
@@ -270,9 +248,9 @@ class CameraVisionGUI:
         """
         if self.bus:
             try:
-                servo_byte = servo_number  # 1, 2, or 3
-                direction_byte = 0x1 if direction == "up" else 0x0  # 1 for up, 0 for down
-                step_byte = 0xA  # 10 steps
+                servo_byte = servo_number
+                direction_byte = 0x1 if direction == "up" else 0x0
+                step_byte = 0xA
                 self.bus.write_i2c_block_data(self.arduino_addr, servo_byte, [direction_byte, step_byte])
                 print(f"Command sent: Move Servo {servo_number} {direction} by {step_byte} steps.")
             except Exception as e:
@@ -372,26 +350,20 @@ class CameraVisionGUI:
         # Get the latest frame from CV
         frame = self.cv.get_frame()
         if frame is not None:
-            # Retrieve x_pid and y_pid from the controller
             x_pid, y_pid = self.controller.get_pid()
 
-            # Define a scale factor for plotting (adjust as needed)
-            scale = 24200/25  # Pixels per unit, adjust based on your application's scale
-
-            # Determine the center of the platform in pixels
+            # center of the platform in pixels
             if self.cv.platform_center:
                 center_x, center_y = self.cv.platform_center
             else:
-                center_x, center_y = self.cv.frame_width // 2, self.cv.frame_height // 2  # Default center
+                center_x, center_y = self.cv.frame_width // 2, self.cv.frame_height // 2
 
             # Map PID values to pixel positions
-            plot_x = int(center_x - x_pid * scale)
-            plot_y = int(center_y + y_pid * scale)  # Invert y-axis for image coordinates
+            plot_x = int(center_x - x_pid * PX_PER_MM)
+            plot_y = int(center_y + y_pid * PX_PER_MM)
 
             # Draw a circle representing the PID position
             cv.circle(frame, (plot_x, plot_y), 10, (0, 255, 255), -1)  # Yellow dot
-
-            # Optionally, draw a line from center to PID position
             cv.line(frame, (center_x, center_y), (plot_x, plot_y), (0, 255, 255), 2)
             
             frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
@@ -404,12 +376,12 @@ class CameraVisionGUI:
                 ball_x_px, ball_y_px = self.cv.ball_position
                 platform_center_x_px, platform_center_y_px = self.cv.platform_center
 
-                # normalize coordinates to (0, 0) at platform center
                 norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
                 
-                norm_x = norm_x * round(250/242, 3)
-                norm_y = norm_y * round(250/242, 3)
+                px_to_mm = self.cv.platform_circle_radius if self.cv.platform_circle_radius else 240
+                norm_x = norm_x * 250 / px_to_mm
+                norm_y = norm_y * 250 / px_to_mm
 
                 self.controller.set_ball_position(norm_x, norm_y)
                 goal_x, goal_y = self.cv.program_positions[self.cv.program_type][self.cv.current_position_index]

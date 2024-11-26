@@ -23,7 +23,6 @@ class CameraVision:
         # Ball color range (HSV)
         self.ball_colors = {
             "pingpong": [[35, 18, 175], [90, 60, 255]],
-#             "bearing": [[0, 0, 0], [179, 255, 50]],
             "golf": [[10, 60, 200], [30, 170, 255]],
         }
         self.ball_type = "pingpong"  # Default ball type
@@ -58,7 +57,7 @@ class CameraVision:
         # flag to control the detection
         self.detecting = False
 
-        # thread synchronization
+        # threading
         self.lock = threading.Lock()
 
         self.capturing = True
