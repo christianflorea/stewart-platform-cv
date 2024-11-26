@@ -35,6 +35,14 @@ class Controller:
 
         self.x_goal = 0.0
         self.y_goal = 0.0
+        
+        self.prev_x_pid = 0.0
+        self.prev_y_pid = 0.0
+        
+        self.x_ball_previous = 0
+        self.y_ball_previous = 0
+        
+        self.low_pass_filter = 1
 
         # PID controller state
         self.error_x_last = 0.0
@@ -98,8 +106,8 @@ class Controller:
         Sets the goal position.
         """
         with self.lock:
-            self.x_goal = x
-            self.y_goal = y
+            self.x_goal = x / 1000
+            self.y_goal = y / 1000
     
     def set_kp(self, kp):
         with self.lock:
@@ -132,18 +140,42 @@ class Controller:
                 # Current position of the ball
                 x_ball = self.x_ball / 1000
                 y_ball = self.y_ball / 1000
-
+            
+            
             # Goal position (platform center)
             x_goal = self.x_goal
             y_goal = self.y_goal
+            
+            
+            '''
+            x_previous = 
+            y_previous = 
+            time_between = 
+            dt_predict = 0.0
+            target_radius = 0.01
+            k_scaling = 0.35
+            
+            v_x = (x_ball - x_ball previous) / time_between
+            v_y = (y_ball - y_ball_previous) / time_between
+            
+            x_predicted = x_current + v_x * dt_predict
+            y_predicted = y_current + v_y * dt_predict
+            
+            error_x = x_goal - x_predicted # Replaces tthe other definition of error_x
+            error_y = y_goal - y_predicted # Replaces tthe other definition of error_y
+            
+            if abs(error_x) < target_radius and abs(error_y) < target_radius
+                kp = kp * (k_scaling)
+                kd = kd * (k_scaling)
+            
+            
+            '''
+            
+            
 
             # Calculate errors
             error_x = x_goal + x_ball
             error_y = y_goal + y_ball
-            
-#             if 0 < (error_x**2 + error_y**2)**(1/2) < 0.02:
-#                 error_x = 0
-#                 error_y = 0
             
             # Time management
             current_time = time.perf_counter()
@@ -172,12 +204,40 @@ class Controller:
                 ki = self.ki
                 ball_mass = self.ball_mass
             
-            kp_mult_x = derivative_x if abs(derivative_x) > 0.01 else 1
-            kp_mult_y = derivative_y if abs(derivative_y) > 0.01 else 1
+            kp_mult_x = derivative_x if abs(derivative_x) > 0.01 and error_x > 0.02 else 1
+            kp_mult_y = derivative_y if abs(derivative_y) > 0.01 and error_y > 0.02 else 1
+            
+            self.prev_x_pid = self.x_pid
+            self.prev_y_pid = self.y_pid
+            
+            
+#             time_between = 
+            dt_predict = 0.08
+            target_radius = 0.01
+            k_scaling = 0.35
+            
+            v_x = ((x_ball - self.x_ball_previous) / time_between) if time_between else 0
+            v_y = ((y_ball - self.y_ball_previous) / time_between) if time_between else 0
+            
+            x_predicted = x_ball + v_x * dt_predict
+            y_predicted = y_ball + v_y * dt_predict
+            
+            error_x = x_goal - x_predicted # Replaces tthe other definition of error_x
+            error_y = y_goal - y_predicted # Replaces tthe other definition of error_y
+            
+            if abs(x_ball) < target_radius and abs(y_ball) < target_radius:
+                self.kp = self.kp * (k_scaling)
+                self.kd = self.kd * (k_scaling)
+            
+            self.x_ball_previous = x_ball
+            self.y_ball_previous = y_ball
 
             x_pid = (kp * error_x * kp_mult_x) + (kd * derivative_x) + (ki * self.integral_x)
             y_pid = (kp * error_y * kp_mult_y) + (kd * derivative_y) + (ki * self.integral_y)
-
+            
+            #x_pid = (kp_dyn * error_x * kp_mult_x) + (kd_dyn * derivative_x) + (ki * self.integral_x)
+            #y_pid = (kp_dyn * error_y * kp_mult_y) + (kd_dyn * derivative_y) + (ki * self.integral_y)
+            
             # Update last errors
             self.error_x_last = error_x
             self.error_y_last = error_y
@@ -188,9 +248,22 @@ class Controller:
             
 #             x_pid = x_ball if x_ball else 0.001
 #             y_pid = y_ball if y_ball else 0.001
+            
+            x_pid = self.low_pass_filter * x_pid + (1 - self.low_pass_filter) * self.prev_x_pid
+            y_pid = self.low_pass_filter * y_pid + (1 - self.low_pass_filter) * self.prev_y_pid
 
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
+            
+            pos = (error_x**2 + error_y**2)**(1/2)
+            vel = (derivative_x**2 + derivative_y**2)**(1/2)
+            if 0 < pos < 0.05 and 0 < vel < 0.05:
+                print(f'p: {pos} and v: {vel}')
+                x_pid /= 2
+                y_pid /= 2
+        
+            
+            
 #             
 #             print(f"POS - x: {round(x_ball, 4)}, y: {round(y_ball, 4)}")
 #             print(f"PID - x: {round(x_pid, 4)}, y: {round(y_pid, 4)}")
