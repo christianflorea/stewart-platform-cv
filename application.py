@@ -11,7 +11,7 @@ from enum import Enum
 
 GOLF_BALL_MASS = 0.04593
 PINGPONG_BALL_MASS = 0.0027
-PX_PER_MM = 24200/25
+mm_per_px = 24000/25
 
 class PID(Enum):
     KP = "KP"
@@ -24,6 +24,7 @@ class CameraVisionGUI:
         self.root.title("Camera Vision GUI")
 
         self.cv = CameraVision()
+        self.mm_per_px = 125 / 240
 
         self.bus = None
         self.arduino_addr = 0x8
@@ -36,10 +37,10 @@ class CameraVisionGUI:
             'pingpong': PINGPONG_BALL_MASS,
         }
 
-        self.kp = 0.24
-        self.kd = 0.11
+        self.kp = 0.2225
+        self.kd = 0.1
         self.ki = 0.001
-        self.s = 0.41
+        self.s = 0.375
         self.controller_step = 0.01
 
         self.controller = Controller(
@@ -231,7 +232,7 @@ class CameraVisionGUI:
             desired_angles[i] = max(105, min(180, int(desired_angles[i])))
             with self.servo_lock:
                 self.current_servo_positions[i] = desired_angles[i]
-        
+        print(f"servo angles: {desired_angles[0]:.2f}, {desired_angles[1]:.2f}, {desired_angles[2]:.2f}")
         # Send I2C command
         if self.bus:
             try:
@@ -359,8 +360,8 @@ class CameraVisionGUI:
                 center_x, center_y = self.cv.frame_width // 2, self.cv.frame_height // 2
 
             # Map PID values to pixel positions
-            plot_x = int(center_x - x_pid * PX_PER_MM)
-            plot_y = int(center_y + y_pid * PX_PER_MM)
+            plot_x = int(center_x - x_pid * 1000 * (self.mm_per_px ** -1))
+            plot_y = int(center_y + y_pid * 1000 * (self.mm_per_px ** -1))
 
             # Draw a circle representing the PID position
             cv.circle(frame, (plot_x, plot_y), 10, (0, 255, 255), -1)  # Yellow dot
@@ -379,12 +380,15 @@ class CameraVisionGUI:
                 norm_x = platform_center_x_px - ball_x_px
                 norm_y = ball_y_px - platform_center_y_px
                 
-                px_to_mm = self.cv.platform_circle_radius if self.cv.platform_circle_radius else 240
-                norm_x = norm_x * 250 / px_to_mm
-                norm_y = norm_y * 250 / px_to_mm
+                platform_radius = self.cv.platform_circle_radius if self.cv.platform_circle_radius else 240
+                self.mm_per_px = 125 / platform_radius
+                norm_x = norm_x * self.mm_per_px
+                norm_y = norm_y * self.mm_per_px
 
                 self.controller.set_ball_position(norm_x, norm_y)
                 goal_x, goal_y = self.cv.program_positions[self.cv.program_type][self.cv.current_position_index]
+                goal_x = goal_x * self.mm_per_px
+                goal_y = goal_y * self.mm_per_px
                 self.controller.set_goal_position(goal_x, -goal_y)
 
                 self.ball_position_text.delete('1.0', tk.END)
