@@ -3,7 +3,7 @@ import numpy as np
 import time
 import threading
 
-PLATFORM_COLOUR = [[108, 70, 75], [118, 220, 165]]
+PLATFORM_COLOUR = [[108, 70, 75], [118, 220, 190]]
 
 class CameraVision:
     def __init__(self):
@@ -22,35 +22,22 @@ class CameraVision:
 
         # Ball color range (HSV)
         self.ball_colors = {
-            "pingpong": [[17, 110, 170], [28, 165, 255]],
-            "bearing": [[0, 0, 0], [179, 255, 50]],
-            "golf": [[40, 10, 150], [100, 100, 255]],
+            "pingpong": [[35, 18, 175], [90, 60, 255]],
+            "golf": [[10, 60, 200], [30, 170, 255]],
         }
-        self.ball_type = "golf"  # Default ball type
+        self.ball_type = "pingpong"  # Default ball type
         self.ball_lower = np.array(self.ball_colors[self.ball_type][0])
         self.ball_upper = np.array(self.ball_colors[self.ball_type][1])
 
         # Program positions - offsets from center
         self.program_positions = {
             'center': [(0, 0)],
-            'line': [(0, 50), (0, -50)],
             'square': [(50, 50), (50, -50), (-50, -50), (-50, 50)],
-            'triangle': [
-                (0, 60),
-                (52, -30),
-                (-52, -30)
-            ],
-            'circle': [
-                (50, 0), (35, 35), (0, 50), (-35, 35), 
-                (-50, 0), (-35, -35), (0, -50), (35, -35),
-                (50, -10), (40, 30), (10, 50), (-40, 30),
-                (-50, -10), (-40, -30), (-10, -50), (40, -30)
-            ]
+            'line': [(80, 0), (-80, 0)],
         }
-
         self.program_type = 'center'
         self.positions = self.program_positions[self.program_type]
-        self.current_target_position = None
+        self.target_radius = 20
 
         self.platform_circle_center = (0, 0)
         self.platform_circle_radius = 0
@@ -70,7 +57,7 @@ class CameraVision:
         # flag to control the detection
         self.detecting = False
 
-        # thread synchronization
+        # threading
         self.lock = threading.Lock()
 
         self.capturing = True
@@ -218,7 +205,7 @@ class CameraVision:
                                 x_target = self.platform_center[0] + x_inc
                                 y_target = self.platform_center[1] + y_inc
 
-                                if abs(x_ball - x_target) <= 10 and abs(y_ball - y_target) <= 10:
+                                if abs(x_ball - x_target) <= self.target_radius and abs(y_ball - y_target) <= self.target_radius:
                                     print(f"Ball reached position ({int(x_target)}, {int(y_target)})")
                                     self.current_position_index = (
                                         self.current_position_index + 1) % len(self.positions)
@@ -267,10 +254,7 @@ class CameraVision:
                     x_inc, y_inc = self.positions[self.current_position_index]
                     x_target = self.platform_center[0] + x_inc
                     y_target = self.platform_center[1] + y_inc
-
-                    self.current_target_position = (int(x_target), int(y_target))
-
-                    cv.circle(frame, (int(x_target), int(y_target)), 5, (255, 0, 0), -1)  # Blue target
+                    cv.circle(frame, (int(x_target), int(y_target)), self.target_radius // 2, (255, 0, 0), -1)  # Blue target
                     cv.putText(frame, f"Target: ({int(x_target)}, {int(y_target)})", (10, 30),
                             cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
