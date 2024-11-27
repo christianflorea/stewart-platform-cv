@@ -125,8 +125,11 @@ class Controller:
 
             # Derivative calculation
             if hasattr(self, 'error_x_last') and time_between > 0:
-                derivative_x = (error_x - self.error_x_last) / time_between
-                derivative_y = (error_y - self.error_y_last) / time_between
+                derivative_x = (x_ball - self.x_ball_previous) / time_between
+                derivative_y = (y_ball - self.y_ball_previous) / time_between
+                
+                #derivative_x = (error_x - self.error_x_last) / time_between
+                #derivative_y = (error_y - self.error_y_last) / time_between
             else:
                 derivative_x = 0.0
                 derivative_y = 0.0
@@ -173,7 +176,7 @@ class Controller:
             self.x_ball_previous = x_ball
             self.y_ball_previous = y_ball
             # ==== predictive end ====
-
+            
             x_pid = (kp * error_x * kp_mult_x) + (kd * derivative_x) + (ki * self.integral_x)
             y_pid = (kp * error_y * kp_mult_y) + (kd * derivative_y) + (ki * self.integral_y)
             
@@ -186,20 +189,23 @@ class Controller:
             y_pid = 0.001 if y_pid == 0 else y_pid
             
             # Low pass filter
-            x_pid = self.low_pass_filter * x_pid + (1 - self.low_pass_filter) * self.prev_x_pid
-            y_pid = self.low_pass_filter * y_pid + (1 - self.low_pass_filter) * self.prev_y_pid
+            if pos < 0.03:
+                x_pid = self.low_pass_filter * x_pid + (1 - self.low_pass_filter) * self.prev_x_pid
+                y_pid = self.low_pass_filter * y_pid + (1 - self.low_pass_filter) * self.prev_y_pid
 
             # Clamp PID outputs
             x_pid = np.clip(x_pid, -self.MAX_PID, self.MAX_PID)
             y_pid = np.clip(y_pid, -self.MAX_PID, self.MAX_PID)
             
+            #x_pid = self.x_ball if self.x_ball else 0.00001
+            #y_pid = self.y_ball if self.y_ball else 0.00001
+            
             # THIS CODE MAKES THE PID SMALLER WHEN BALL IS NEAR CENTER
-            pos = (error_x**2 + error_y**2)**(1/2)
-            vel = (derivative_x**2 + derivative_y**2)**(1/2)
             if 0 < pos < 0.03 and 0 < vel < 0.03: # need to check these values
+                pass
                 print(f'p: {pos} and v: {vel}')
-                # x_pid /= 2
-                # y_pid /= 2
+                x_pid /= 2
+                y_pid /= 2
             
             with self.lock:
                 self.x_pid = x_pid
@@ -367,17 +373,16 @@ class Controller:
             #     theta_calc[0]= 0.1 *  self.theta_avg_1[0] + 0.2 *  self.theta_avg_1[1] + 0.7 *  self.theta_avg_1[2]
             #     theta_calc[1] = 0.1 *  self.theta_avg_2[0] + 0.2 *  self.theta_avg_2[1] + 0.7 *  self.theta_avg_2[2]
             #     theta_calc[2] = 0.1 *  self.theta_avg_3[0] + 0.2 *  self.theta_avg_3[1] + 0.7 *  self.theta_avg_3[2]
-
-            callback(theta_calc[0], theta_calc[1], theta_calc[2])
             
             # print(f"x: {round(x1, 3)}, {round(x2, 3)}, {round(x3, 3)}")
             # print(f"y: {round(y1, 3)}, {round(y2, 3)}, {round(y3, 3)}")
             # print(f"z: {round(z1, 3)}, {round(z2, 3)}, {round(z3, 3)}")
             # print(f"L_a: {round(L_a1, 3)}, {round(L_a2, 3)}, {round(L_a3, 3)}")
 
-            # print(f"V: {V:.5f} m/s")
-            # print(f"Theta: {theta_deg:.2f} degrees")
-            # print(f"Phi: {phi_deg:.2f} degrees")
+            print(f"V: {V:.5f} m/s")
+            print(f"Theta: {theta_deg:.2f} degrees")
+            print(f"Phi: {phi_deg:.2f} degrees")
+            print(f"POS: {self.x_ball}, {self.y_ball}")
             # print(f"Alpha: {alpha:.5f}")
             # print(f"Beta: {beta:.5f}")
             # print(f"Gamma: {gamma:.5f}")
@@ -386,6 +391,7 @@ class Controller:
             # print(f"Theta_3: {theta_3:.2f} degrees")
             # print("-" * 40)
             
+            callback(theta_calc[0], theta_calc[1], theta_calc[2])
             delay = self.delay
             time.sleep(delay)
 
