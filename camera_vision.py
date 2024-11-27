@@ -3,7 +3,7 @@ import numpy as np
 import time
 import threading
 
-PLATFORM_COLOUR = [[108, 70, 75], [118, 220, 165]]
+PLATFORM_COLOUR = [[108, 70, 75], [118, 220, 190]]
 
 class CameraVision:
     def __init__(self):
